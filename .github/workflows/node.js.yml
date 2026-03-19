@@ -1,0 +1,45 @@
+name: Server Health Check
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Check for syntax errors
+      run: node -c server.js
+
+    - name: Verify package.json
+      run: npm list --depth=0
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Check .gitignore
+      run: |
+        if grep -q "node_modules" .gitignore; then
+          echo "✅ .gitignore properly excludes node_modules"
+        else
+          echo "❌ .gitignore missing node_modules exclusion"
+          exit 1
+        fi
