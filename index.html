@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<title>AI Medical Viva Trainer</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100 flex items-center justify-center min-h-screen overflow-y-auto py-8 relative">
+
+<!-- Medical Background Graphics -->
+<svg class="absolute top-0 left-0 w-full h-full opacity-20 pointer-events-none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Row 1 -->
+  <g transform="translate(60, 50) rotate(-20)">
+    <circle cx="0" cy="0" r="4" fill="none" stroke="#ff1744" stroke-width="3"/>
+    <line x1="4" y1="0" x2="30" y2="0" stroke="#ff1744" stroke-width="3"/>
+    <line x1="30" y1="-3" x2="35" y2="0" stroke="#ff1744" stroke-width="3"/>
+    <line x1="30" y1="3" x2="35" y2="0" stroke="#ff1744" stroke-width="3"/>
+  </g>
+  <g transform="translate(200, 40)">
+    <ellipse cx="0" cy="0" rx="9" ry="6" fill="none" stroke="#1e40af" stroke-width="3"/>
+    <line x1="-9" y1="0" x2="0" y2="0" stroke="#1e40af" stroke-width="3"/>
+  </g>
+  <g transform="translate(340, 60) rotate(35)">
+    <path d="M 0 8 C -6 2 -10 -2 -10 -8 C -10 -12 -6 -15 -2 -15 C 0 -15 2 -12 0 -10 C -2 -12 0 -15 2 -15 C 6 -15 10 -12 10 -8 C 10 -2 6 2 0 8 Z" fill="none" stroke="#ff2051" stroke-width="3"/>
+  </g>
+  <g transform="translate(480, 50)">
+    <rect x="-4" y="-10" width="8" height="14" fill="none" stroke="#00bcd4" stroke-width="3" rx="1"/>
+    <rect x="-5" y="-12" width="10" height="3" fill="none" stroke="#00bcd4" stroke-width="2"/>
+  </g>
+  <g transform="translate(620, 70) rotate(-30)">
+    <circle cx="-5" cy="0" r="4" fill="none" stroke="#22c55e" stroke-width="3"/>
+    <circle cx="5" cy="0" r="4" fill="none" stroke="#22c55e" stroke-width="3"/>
+    <line x1="-1" y1="-4" x2="-1" y2="4" stroke="#22c55e" stroke-width="3"/>
+  </g>
+  <g transform="translate(760, 45) rotate(15)">
+    <ellipse cx="0" cy="0" rx="10" ry="6" fill="none" stroke="#ff7f00" stroke-width="3"/>
+    <line x1="-10" y1="0" x2="0" y2="0" stroke="#ff7f00" stroke-width="3"/>
+  </g>
+  <g transform="translate(900, 60)">
+    <circle cx="0" cy="0" r="6" fill="none" stroke="#a855f7" stroke-width="3"/>
+    <path d="M -6 0 Q -15 -10 -15 -18" fill="none" stroke="#a855f7" stroke-width="3"/>
+    <path d="M 6 0 Q 15 -10 15 -18" fill="none" stroke="#a855f7" stroke-width="3"/>
+  </g>
+  <g transform="translate(1040, 50) rotate(25)">
+    <path d="M 0 -12 Q 6 -8 0 0 Q -6 8 0 12" fill="none" stroke="#ec4899" stroke-width="3"/>
+    <path d="M 0 -12 Q -6 -8 0 0 Q 6 8 0 12" fill="none" stroke="#ec4899" stroke-width="3" stroke-dasharray="2,2"/>
+  </g>
+  <g transform="translate(1180, 65) rotate(-10)">
+    <circle cx="0" cy="5" r="5" fill="none" stroke="#0891b2" stroke-width="3"/>
+    <line x1="0" y1="0" x2="0" y2="-10" stroke="#0891b2" stroke-width="3"/>
+    <circle cx="0" cy="-10" r="4" fill="none" stroke="#0891b2" stroke-width="3"/>
+  </g>
+</svg>
+
+<!-- MODE SELECTION SCREEN -->
+<div id="modeScreen" class="bg-white p-12 rounded-xl shadow-2xl w-[550px] relative z-10">
+  <h1 class="text-4xl font-bold text-center mb-2 text-gray-800">AI Medical Viva Trainer</h1>
+  <p class="text-center text-gray-600 mb-8">Master your medical knowledge with AI-powered viva training</p>
+
+  <div class="space-y-4">
+    <button onclick="startMode('practice')" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition">
+      🎓 Practice Mode (Free Study)
+    </button>
+    <button onclick="startMode('exam')" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg transition">
+      📋 Exam Mode (10 Questions)
+    </button>
+  </div>
+
+  <div class="mt-8 p-4 bg-gray-50 rounded-lg">
+    <h3 class="font-semibold text-gray-700 mb-3">📄 Upload Study Material (Optional)</h3>
+    <p class="text-sm text-gray-600">Feature coming soon - AI will adapt questions to your study materials</p>
+  </div>
+</div>
+
+<!-- EXAM/PRACTICE SCREEN -->
+<div id="examScreen" class="bg-white p-10 rounded-xl shadow-xl w-[600px] relative z-10 hidden" style="max-height: 85vh; overflow-y-auto;">
+
+  <!-- Header with Progress -->
+  <div class="mb-6">
+    <div class="flex justify-between items-center mb-2">
+      <h1 id="modeTitle" class="text-2xl font-bold text-blue-600">Exam Mode</h1>
+      <div id="questionCounter" class="text-sm font-semibold text-gray-600">Q1/10</div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="w-full bg-gray-200 rounded-full h-2">
+      <div id="progressBar" class="bg-blue-600 h-2 rounded-full" style="width: 0%;"></div>
+    </div>
+  </div>
+
+  <!-- Timer -->
+  <div class="flex justify-between items-center mb-6 p-3 bg-gray-50 rounded-lg">
+    <div>
+      <p class="text-xs text-gray-600">Time Remaining</p>
+      <div id="timerDisplay" class="text-2xl font-bold text-blue-600">30s</div>
+    </div>
+    <div class="w-32 bg-gray-300 rounded-full h-3">
+      <div id="timerBar" class="bg-blue-600 h-3 rounded-full" style="width: 100%;"></div>
+    </div>
+  </div>
+
+  <!-- Question -->
+  <div class="mb-6">
+    <p class="text-sm font-semibold text-gray-600 mb-2">Professor Question:</p>
+    <p id="question" class="text-lg text-gray-800 font-semibold p-4 bg-blue-50 rounded-lg border-l-4 border-blue-600"></p>
+  </div>
+
+  <!-- Answer Input -->
+  <div class="mb-6">
+    <label class="text-sm font-semibold text-gray-700">Your Answer:</label>
+    <div class="relative">
+      <textarea
+        id="answer"
+        placeholder="Type your answer here... or use the mic button to speak."
+        class="border-2 border-gray-300 p-3 w-full rounded-lg mt-2 h-32 focus:border-blue-500 focus:outline-none resize-none pr-16"></textarea>
+      <button
+        id="voiceBtn"
+        onclick="toggleVoiceInput()"
+        class="absolute bottom-3 right-3 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-3 rounded transition text-sm flex items-center gap-1">
+        🎤
+      </button>
+    </div>
+    <p id="charCount" class="text-xs text-gray-500 mt-1">0 characters</p>
+    <p id="listeningIndicator" class="text-xs text-red-600 mt-1 hidden font-semibold">🔴 Listening...</p>
+  </div>
+
+  <!-- Buttons -->
+  <div id="actionButtons" class="grid grid-cols-3 gap-3 mb-6">
+    <button onclick="submitCurrentAnswer()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition">
+      ✓ Submit
+    </button>
+    <button onclick="skipQuestion()" class="bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-lg transition">
+      ⏭️ Skip
+    </button>
+    <button onclick="backToMenu()" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition">
+      ↩️ Menu
+    </button>
+  </div>
+
+  <!-- Next Button (shown after submission) -->
+  <div id="nextButtonWrapper" class="grid grid-cols-3 gap-3 mb-6 hidden">
+    <button onclick="nextQuestion()" class="col-span-3 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition text-lg">
+      ➜ Next Question
+    </button>
+  </div>
+
+  <!-- Feedback -->
+  <div id="feedback" class="p-4 rounded-lg hidden mb-4"></div>
+
+  <!-- Navigation -->
+  <div id="navigationBtns" class="flex gap-3 hidden">
+    <button onclick="previousQuestion()" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition">
+      ← Previous
+    </button>
+    <button onclick="nextQuestion()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition">
+      Next →
+    </button>
+  </div>
+
+</div>
+
+<!-- RESULTS SCREEN -->
+<div id="resultsScreen" class="bg-white p-10 rounded-xl shadow-xl w-[600px] relative z-10 hidden">
+
+  <h1 class="text-3xl font-bold text-center mb-6 text-gray-800">Exam Complete!</h1>
+
+  <div class="p-6 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg mb-6">
+    <p class="text-center text-sm text-gray-600 mb-2">Final Score</p>
+    <p id="finalScore" class="text-5xl font-bold text-center text-blue-600 mb-2">0/100</p>
+    <p id="performanceMsg" class="text-center text-lg font-semibold text-gray-800"></p>
+  </div>
+
+  <div class="mb-6">
+    <h3 class="font-bold text-gray-800 mb-3">📊 Answer Review:</h3>
+    <div id="answersReview" class="space-y-4 max-h-64 overflow-y-auto">
+    </div>
+  </div>
+
+  <div class="flex gap-3">
+    <button onclick="restartExam()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition">
+      🔄 Try Again
+    </button>
+    <button onclick="backToMode()" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition">
+      ↩ Back to Menu
+    </button>
+  </div>
+
+</div>
+
+<script>
+
+// ========================================
+// STATE MANAGEMENT
+// ========================================
+let appState = {
+  mode: null, // 'practice' or 'exam'
+  currentQuestionIndex: 0,
+  totalQuestions: 10,
+  questions: [],
+  answers: [],
+  scores: [],
+  totalScore: 0,
+  timerInterval: null,
+  timeLeft: 300,
+  submitted: false,
+  isRecording: false,  // NEW: Voice recording state
+  recognition: null,   // NEW: Speech recognition object
+  finalTranscript: '', // NEW: Track final transcribed text
+  interimTranscript: '',// NEW: Track interim transcribed text
+  sources: [],  // NEW: Store question sources ('ai' or 'local')
+  sessionId: null,  // NEW: Session tracking
+  progressSaved: 0  // NEW: Count of saved attempts
+};
+
+// ========================================
+// SPEECH RECOGNITION INITIALIZATION
+// ========================================
+function initSpeechRecognition() {
+  if (appState.recognition !== null) return; // Already initialized
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  if (!SpeechRecognition) {
+    console.error('Speech Recognition not supported in this browser');
+    return null;
+  }
+
+  const recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+
+  recognition.onstart = function() {
+    appState.isRecording = true;
+    appState.finalTranscript = '';
+    appState.interimTranscript = '';
+    document.getElementById('voiceBtn').classList.add('bg-red-600', 'hover:bg-red-700');
+    document.getElementById('voiceBtn').classList.remove('bg-blue-500', 'hover:bg-blue-600');
+    document.getElementById('voiceBtn').innerText = '⏹️';
+    document.getElementById('listeningIndicator').classList.remove('hidden');
+  };
+
+  recognition.onresult = function(event) {
+    appState.interimTranscript = '';
+    let allTranscripts = '';
+
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const result = event.results[i];
+
+      // Get the first (and usually only) alternative
+      if (result.length === 0) continue;
+
+      const transcript = result[0].transcript || '';
+
+      if (!transcript) {
+        continue;
+      }
+
+      allTranscripts += transcript + ' ';
+
+      if (result.isFinal) {
+        // Add final result to accumulated final transcript
+        appState.finalTranscript += transcript + ' ';
+      } else {
+        // Accumulate interim results
+        appState.interimTranscript = transcript;
+      }
+    }
+
+    // Update textarea with final text + interim text in real-time
+    const answerField = document.getElementById('answer');
+    let displayText = (appState.finalTranscript + appState.interimTranscript).trim();
+
+    if (displayText) {
+      answerField.value = displayText;
+      updateCharCount();
+    }
+
+    // Display interim text in listening indicator
+    if (appState.interimTranscript) {
+      document.getElementById('listeningIndicator').innerText = '🔴 Listening: "' + appState.interimTranscript + '"';
+    } else if (appState.finalTranscript) {
+      document.getElementById('listeningIndicator').innerText = '🔴 Listening...';
+    }
+  };
+
+  recognition.onerror = function(event) {
+    console.error('Speech error:', event.error);
+  };
+
+  recognition.onend = function() {
+    // Only stop if user manually pressed the button to stop
+    // If isRecording is still true, the browser paused - so restart
+    if (appState.isRecording) {
+      try {
+        recognition.start(); // Restart listening
+      } catch (e) {
+        console.log('Recognition already started');
+      }
+    } else {
+      // User manually stopped - update UI
+      document.getElementById('voiceBtn').classList.add('bg-blue-500', 'hover:bg-blue-600');
+      document.getElementById('voiceBtn').classList.remove('bg-red-600', 'hover:bg-red-700');
+      document.getElementById('voiceBtn').innerText = '🎤';
+      document.getElementById('listeningIndicator').classList.add('hidden');
+    }
+  };
+
+  appState.recognition = recognition;
+  return recognition;
+}
+
+function toggleVoiceInput() {
+  if (!appState.recognition) {
+    initSpeechRecognition();
+  }
+
+  if (!appState.recognition) return;
+
+  if (appState.isRecording) {
+    // User wants to stop recording
+    // Finalize any interim text by adding it to final transcript
+    if (appState.interimTranscript) {
+      appState.finalTranscript += appState.interimTranscript + ' ';
+      appState.interimTranscript = '';
+    }
+
+    // Update textarea one last time with final text
+    const answerField = document.getElementById('answer');
+    answerField.value = appState.finalTranscript.trim();
+    updateCharCount();
+
+    appState.isRecording = false;
+    appState.recognition.stop();
+  } else {
+    // User wants to start recording
+    appState.isRecording = true;
+    appState.recognition.start();
+  }
+}
+
+// ========================================
+// QUESTION BANK
+// ========================================
+const questionBank = [
+  {
+    question: "Explain the action potential and describe the phases involved in cardiac muscle contraction.",
+    followUp: "What ion channels are responsible for each phase?",
+    difficulty: "medium"
+  },
+  {
+    question: "Describe Starling's Law of the Heart and its physiological significance.",
+    followUp: "How does end-diastolic volume affect cardiac output?",
+    difficulty: "medium"
+  },
+  {
+    question: "What are the causes and mechanisms of metabolic acidosis?",
+    followUp: "How does the body compensate for metabolic acidosis?",
+    difficulty: "easy"
+  },
+  {
+    question: "Explain the renin-angiotensin-aldosterone system and its role in blood pressure regulation.",
+    followUp: "What happens when this system is inhibited by ACE inhibitors?",
+    difficulty: "hard"
+  },
+  {
+    question: "Describe the phases of the cardiac cycle and corresponding pressure changes.",
+    followUp: "What pathological conditions affect these pressure relationships?",
+    difficulty: "hard"
+  },
+  {
+    question: "Explain the Frank-Starling mechanism at the molecular level.",
+    followUp: "How does calcium sensitivity change with sarcomere length?",
+    difficulty: "hard"
+  },
+  {
+    question: "What is the role of the parasympathetic nervous system in cardiac regulation?",
+    followUp: "What effects does acetylcholine have on AV node conduction?",
+    difficulty: "easy"
+  },
+  {
+    question: "Describe the pathophysiology of heart failure including systolic and diastolic dysfunction.",
+    followUp: "What compensatory mechanisms activate in chronic heart failure?",
+    difficulty: "hard"
+  },
+  {
+    question: "Explain blood pressure regulation through short-term and long-term mechanisms.",
+    followUp: "How do baroreceptor reflexes differ from chemoreceptor reflexes?",
+    difficulty: "medium"
+  },
+  {
+    question: "What is the clinical significance of the Windkessel effect in large arteries?",
+    followUp: "How is this effect altered in aging and atherosclerosis?",
+    difficulty: "hard"
+  }
+];
+
+// ========================================
+// MODES & INITIALIZATION
+// ========================================
+
+// Generate unique session ID
+function generateSessionId() {
+  return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+// Create a new session
+async function createSession(mode) {
+  appState.sessionId = generateSessionId();
+  try {
+    const response = await fetch('/progress/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: appState.sessionId, mode })
+    });
+    const data = await response.json();
+    if (data.success) {
+      console.log('✅ Session created:', appState.sessionId);
+    }
+  } catch (error) {
+    console.error('❌ Failed to create session:', error);
+  }
+}
+
+// Save attempt to database
+async function saveAttempt(questionIndex, question, answer, score, source) {
+  if (!appState.sessionId) return;
+
+  try {
+    const response = await fetch('/progress/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: appState.sessionId,
+        questionIndex,
+        question,
+        answer,
+        score,
+        source
+      })
+    });
+    const data = await response.json();
+    if (data.success) {
+      appState.progressSaved++;
+      console.log(`📊 Progress saved (${appState.progressSaved})`);
+    }
+  } catch (error) {
+    console.error('Failed to save progress:', error);
+  }
+}
+
+function startMode(mode) {
+  appState.mode = mode;
+  appState.currentQuestionIndex = 0;
+  appState.answers = [];
+  appState.scores = [];
+  appState.sources = [];
+  appState.totalScore = 0;
+  appState.progressSaved = 0;
+
+  // Create session
+  createSession(mode);
+
+  document.getElementById('modeScreen').classList.add('hidden');
+  document.getElementById('examScreen').classList.remove('hidden');
+  document.getElementById('resultsScreen').classList.add('hidden');
+
+  // Update mode title
+  const modeTitle = mode === 'practice'
+    ? '🎓 Practice Mode (Unlimited Questions)'
+    : '📋 Exam Mode (Unlimited Questions)';
+  document.getElementById('modeTitle').innerText = modeTitle;
+
+  // Show loading state
+  document.getElementById('question').innerHTML = '<div class="text-center text-gray-500">📚 Loading questions...</div>';
+
+  if (mode === 'practice') {
+    appState.totalQuestions = Infinity;
+    // Fetch initial question for practice mode (unlimited)
+    fetchQuestionsFromServer(1).then(questions => {
+      appState.questions = questions.map(q => ({ question: q.question }));
+      appState.sources = questions.map(q => q.source);
+      loadQuestion();
+    });
+  } else {
+    appState.totalQuestions = Infinity;
+    // Fetch 1 initial question for exam mode (but unlimited questions available)
+    fetchQuestionsFromServer(1).then(questions => {
+      appState.questions = questions.map(q => ({ question: q.question }));
+      appState.sources = questions.map(q => q.source);
+      loadQuestion();
+    });
+  }
+}
+
+function getRandomQuestions(count) {
+  let shuffled = [...questionBank].sort(() => 0.5 - Math.random());
+  return shuffled.slice(0, count);
+}
+
+// ========================================
+// QUESTION LOADING & DISPLAY
+// ========================================
+async function fetchQuestionsFromServer(count) {
+  try {
+    console.log(`🔄 Fetching ${count} questions from server...`);
+    const questionPromises = [];
+
+    for (let i = 0; i < count; i++) {
+      questionPromises.push(
+        fetch('/question')
+          .then(res => res.json())
+          .catch(err => {
+            console.error(`❌ Failed to fetch question ${i + 1}:`, err);
+            return { question: questionBank[0].question, source: 'local' };
+          })
+      );
+    }
+
+    const results = await Promise.all(questionPromises);
+    console.log(`✅ Fetched ${results.length} questions. Sources:`, results.map(q => q.source));
+    return results;
+  } catch (error) {
+    console.error('Failed to fetch questions from server:', error);
+    // Fallback to local questions
+    return getRandomQuestions(count).map(q => ({ question: q.question, source: 'local' }));
+  }
+}
+
+function loadQuestion() {
+  const q = appState.questions[appState.currentQuestionIndex];
+  const source = appState.sources[appState.currentQuestionIndex] || 'local';
+
+  // Display question with source badge
+  const sourceBadge = source === 'ai' ? '🤖 AI' : '📝 Local';
+  document.getElementById('question').innerHTML = `
+    <div class="flex items-start justify-between gap-3">
+      <span>${q.question}</span>
+      <span class="text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${source === 'ai' ? 'bg-purple-200 text-purple-800' : 'bg-gray-200 text-gray-800'}">${sourceBadge}</span>
+    </div>
+  `;
+
+  document.getElementById('questionCounter').innerText = `Q${appState.currentQuestionIndex + 1}`;
+
+  // Update progress bar - hide for both practice and exam (unlimited questions)
+  document.getElementById('progressBar').style.width = '0%';
+
+  // CLEAR answer input - always start fresh for new question
+  document.getElementById('answer').value = '';
+  updateCharCount();
+
+  // Reset feedback
+  document.getElementById('feedback').classList.add('hidden');
+  document.getElementById('navigationBtns').classList.add('hidden');
+
+  // Reset buttons - show action buttons, hide next button
+  document.getElementById('actionButtons').classList.remove('hidden');
+  document.getElementById('nextButtonWrapper').classList.add('hidden');
+
+  // Speak question
+  const speech = new SpeechSynthesisUtterance(q.question);
+  speech.rate = 0.9;
+  speechSynthesis.speak(speech);
+
+  startTimer();
+}
+
+function updateCharCount() {
+  const count = document.getElementById('answer').value.length;
+  document.getElementById('charCount').innerText = count + ' characters';
+}
+
+// ========================================
+// TIMER SYSTEM
+// ========================================
+function startTimer() {
+  if (appState.timerInterval) clearInterval(appState.timerInterval);
+
+  appState.timeLeft = 300;
+  updateTimerDisplay();
+
+  appState.timerInterval = setInterval(() => {
+    appState.timeLeft--;
+    updateTimerDisplay();
+
+    if (appState.timeLeft <= 0) {
+      clearInterval(appState.timerInterval);
+      autoSubmitAnswer();
+    }
+  }, 1000);
+}
+
+function updateTimerDisplay() {
+  document.getElementById('timerDisplay').innerText = appState.timeLeft + 's';
+
+  const percent = (appState.timeLeft / 300) * 100;
+  document.getElementById('timerBar').style.width = percent + '%';
+
+  if (appState.timeLeft <= 60) {
+    document.getElementById('timerDisplay').classList.add('text-red-600');
+    document.getElementById('timerDisplay').classList.remove('text-blue-600');
+    document.getElementById('timerBar').classList.add('bg-red-600');
+    document.getElementById('timerBar').classList.remove('bg-blue-600');
+  } else {
+    document.getElementById('timerDisplay').classList.add('text-blue-600');
+    document.getElementById('timerDisplay').classList.remove('text-red-600');
+    document.getElementById('timerBar').classList.add('bg-blue-600');
+    document.getElementById('timerBar').classList.remove('bg-red-600');
+  }
+}
+
+// ========================================
+// ANSWER SUBMISSION & SCORING
+// ========================================
+async function submitCurrentAnswer() {
+  if (appState.submitted) return;
+
+  clearInterval(appState.timerInterval);
+  appState.submitted = true;
+
+  const answer = document.getElementById('answer').value;
+
+  if (!answer.trim()) {
+    alert('Please write an answer before submitting');
+    appState.submitted = false;
+    return;
+  }
+
+  const questionIndex = appState.currentQuestionIndex; // CAPTURE INDEX
+  appState.answers[questionIndex] = answer;
+
+  try {
+    const response = await fetch('/evaluate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question: appState.questions[questionIndex].question,
+        answer: answer
+      })
+    });
+
+    if (!response.ok) throw new Error('Submission failed');
+
+    const data = await response.json();
+
+    // FIX: Only count score once per question
+    if (appState.scores[questionIndex] === undefined) {
+      appState.totalScore += data.score;
+      appState.scores[questionIndex] = data.score;
+
+      // Save progress to database
+      saveAttempt(
+        questionIndex,
+        appState.questions[questionIndex].question,
+        answer,
+        data.score,
+        appState.sources[questionIndex]
+      );
+    }
+
+    // Display feedback
+    const feedbackEl = document.getElementById('feedback');
+    feedbackEl.innerHTML = `<p class="font-semibold text-gray-800">${data.feedback}</p>
+      <p class="text-sm text-gray-600 mt-2">Score: <span class="font-bold text-green-600">${data.score}/10</span></p>`;
+    feedbackEl.classList.remove('hidden');
+    feedbackEl.classList.add('bg-green-50', 'border-l-4', 'border-green-600');
+
+    // Hide submit/skip/menu buttons and show next button
+    document.getElementById('actionButtons').classList.add('hidden');
+    document.getElementById('nextButtonWrapper').classList.remove('hidden');
+
+  } catch (error) {
+    console.error('Submit error:', error);
+    const feedbackEl = document.getElementById('feedback');
+    feedbackEl.innerHTML = '<p class="text-red-600 font-semibold">❌ Error submitting answer. Please try again.</p>';
+    feedbackEl.classList.remove('hidden');
+    appState.submitted = false; // Allow retry
+  }
+}
+
+function autoSubmitAnswer() {
+  if (!appState.submitted) {
+    submitCurrentAnswer();
+  }
+}
+
+// ========================================
+// FOLLOW-UP QUESTIONS (Disabled)
+// ========================================
+// Follow-up questions are part of each question object.
+// Student can request them after initial submission if available.
+// Currently disabled - can be re-enabled with backend support.
+
+// ========================================
+// NAVIGATION
+// ========================================
+function nextQuestion() {
+  // Always fetch a new question for both practice and exam modes (unlimited)
+  appState.currentQuestionIndex++;
+  appState.submitted = false;
+  document.getElementById('question').innerHTML = '<div class="text-center text-gray-500">📚 Loading next question...</div>';
+  document.getElementById('answer').value = '';
+
+  // Hide buttons and show loading state
+  document.getElementById('actionButtons').classList.add('hidden');
+  document.getElementById('nextButtonWrapper').classList.add('hidden');
+
+  fetchQuestionsFromServer(1).then(questions => {
+    appState.questions.push({ question: questions[0].question });
+    appState.sources.push(questions[0].source);
+    loadQuestion();
+  });
+}
+
+function previousQuestion() {
+  if (appState.currentQuestionIndex > 0) {
+    appState.currentQuestionIndex--;
+    appState.submitted = false; // RESET for going back
+    loadQuestion();
+  }
+}
+
+function skipQuestion() {
+  // Skip to next question without submitting - always fetch new question (unlimited)
+  appState.currentQuestionIndex++;
+  appState.submitted = false;
+  appState.answers[appState.currentQuestionIndex - 1] = '(Skipped)';
+  document.getElementById('question').innerHTML = '<div class="text-center text-gray-500">📚 Loading next question...</div>';
+  document.getElementById('answer').value = '';
+
+  // Hide buttons and show loading state
+  document.getElementById('actionButtons').classList.add('hidden');
+  document.getElementById('nextButtonWrapper').classList.add('hidden');
+
+  fetchQuestionsFromServer(1).then(questions => {
+    appState.questions.push({ question: questions[0].question });
+    appState.sources.push(questions[0].source);
+    loadQuestion();
+  });
+}
+
+function backToMenu() {
+  // Clear state and return to mode selection
+  clearInterval(appState.timerInterval);
+  document.getElementById('modeScreen').classList.remove('hidden');
+  document.getElementById('examScreen').classList.add('hidden');
+  document.getElementById('resultsScreen').classList.add('hidden');
+
+  // Reset app state
+  appState.mode = null;
+  appState.currentQuestionIndex = 0;
+  appState.answers = [];
+  appState.scores = [];
+  appState.totalScore = 0;
+  appState.submitted = false;
+}
+
+// ========================================
+// RESULTS
+// ========================================
+function showResults() {
+  clearInterval(appState.timerInterval);
+
+  document.getElementById('examScreen').classList.add('hidden');
+  document.getElementById('resultsScreen').classList.remove('hidden');
+
+  // RECALCULATE totalScore from individual scores to prevent inflation
+  let recalculatedScore = 0;
+  appState.scores.forEach(score => {
+    recalculatedScore += (score || 0);
+  });
+
+  const finalScore = Math.round((recalculatedScore / (appState.totalQuestions * 10)) * 100);
+  document.getElementById('finalScore').innerText = Math.min(finalScore, 100) + '/100';
+
+  let msg = '';
+  if (finalScore >= 80) msg = '🎉 Excellent! You have a strong grasp of the material.';
+  else if (finalScore >= 60) msg = '👍 Good! Keep practicing to master these concepts.';
+  else if (finalScore >= 40) msg = '📚 Fair. Review the material and practice more.';
+  else msg = '💪 Keep studying! Focus on weaker areas.';
+
+  document.getElementById('performanceMsg').innerText = msg;
+
+  // Show answers review
+  let reviewHTML = '';
+  appState.questions.forEach((q, idx) => {
+    reviewHTML += `
+      <div class="p-3 bg-gray-50 rounded-lg border-l-4 border-blue-600">
+        <p class="text-sm font-semibold text-gray-700">Q${idx + 1}: ${q.question.substring(0, 60)}...</p>
+        <p class="text-xs text-gray-600 mt-1"><strong>Your Answer:</strong> ${appState.answers[idx] || '(Not answered)'}</p>
+        <p class="text-xs text-green-600 mt-1"><strong>Score:</strong> ${appState.scores[idx] || 0}/10</p>
+      </div>
+    `;
+  });
+  document.getElementById('answersReview').innerHTML = reviewHTML;
+}
+
+function restartExam() {
+  startMode(appState.mode);
+}
+
+function backToMode() {
+  document.getElementById('modeScreen').classList.remove('hidden');
+  document.getElementById('examScreen').classList.add('hidden');
+  document.getElementById('resultsScreen').classList.add('hidden');
+}
+
+// ========================================
+// FILE UPLOAD (Disabled)
+// ========================================
+// File upload functionality will be re-enabled with
+// proper PDF parsing and API integration in future updates.
+
+// Track character count
+document.addEventListener('DOMContentLoaded', () => {
+  const answerEl = document.getElementById('answer');
+  if (answerEl) {
+    answerEl.addEventListener('input', updateCharCount);
+  }
+
+  // Initialize speech recognition
+  initSpeechRecognition();
+});
+
+</script>
+
+</body>
+
+</html>

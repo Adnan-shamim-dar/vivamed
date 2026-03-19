@@ -1,0 +1,11 @@
+node_modules/
+.env
+.DS_Store
+*.log
+data/
+progress.json
+.continue/
+DIAGNOSTIC_REPORT.md
+QUICK_FIX_GUIDE.md
+diagnostic.js
+*.tmp

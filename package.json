@@ -1,0 +1,15 @@
+{
+  "name": "vivamed",
+  "version": "1.0.0",
+  "description": "AI Medical Viva Trainer",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "type": "commonjs",
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "express": "^4.18.2",
+    "sqlite3": "^6.0.1"
+  }
+}
