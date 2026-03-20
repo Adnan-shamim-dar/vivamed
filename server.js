@@ -110,6 +110,12 @@ db.serialize(() => {
     }
   });
 
+  db.run(`ALTER TABLE attempts ADD COLUMN difficulty TEXT DEFAULT 'medium'`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding difficulty to attempts:', err.message);
+    }
+  });
+
   console.log('📊 Database tables ready (including PDF support)');
 });
 
@@ -411,6 +417,146 @@ Return ONLY the question as a single sentence.`;
     };
   } catch (error) {
     console.error('❌ PDF-Based Question Generation Failed:', error.message);
+    throw error;
+  }
+}
+
+// Generate multiple questions (12-20) with different difficulty levels from PDF chunks
+async function generateMultiplePDFQuestions(sessionId, fileId, numberOfQuestions = 18) {
+  if (!OPENROUTER_API_KEY) {
+    throw new Error("OPENROUTER_API_KEY not set");
+  }
+
+  try {
+    console.log(`\n🎯 Generating ${numberOfQuestions} questions with 3 difficulty levels from PDF...`);
+
+    // Calculate questions per difficulty level (equally distributed)
+    const perLevel = Math.floor(numberOfQuestions / 3);
+    const difficultyLevels = [
+      { level: 'easy', count: perLevel, emoji: '🟢' },
+      { level: 'medium', count: perLevel, emoji: '🟡' },
+      { level: 'hard', count: perLevel, emoji: '🔴' }
+    ];
+
+    // Adjust for rounding
+    difficultyLevels[2].count += numberOfQuestions - (perLevel * 3);
+
+    console.log(`📊 Distribution: ${perLevel} easy, ${perLevel} medium, ${perLevel + (numberOfQuestions - perLevel * 3)} hard`);
+
+    // Get PDF metadata
+    const pdfMetadata = await new Promise((resolve, reject) => {
+      db.get(
+        'SELECT totalChunks, originalFilename FROM uploaded_files WHERE fileId = ?',
+        [fileId],
+        (err, row) => {
+          if (err) reject(err);
+          else resolve(row || {});
+        }
+      );
+    });
+
+    const allGeneratedQuestions = [];
+
+    // Generate questions for each difficulty level
+    for (const diffLevel of difficultyLevels) {
+      console.log(`\n${diffLevel.emoji} Generating ${diffLevel.count} ${diffLevel.level} questions...`);
+
+      for (let i = 0; i < diffLevel.count; i++) {
+        // Get a chunk (rotate through chunks for variety)
+        const chunk = await getNextChunk(sessionId, fileId);
+
+        // Build difficulty-specific prompt
+        let difficultyGuidance = '';
+        if (diffLevel.level === 'easy') {
+          difficultyGuidance = `
+DIFFICULTY: EASY (🟢)
+Focus on basic understanding, definitions, and fundamental concepts.
+Examples: What is..., Define..., What are the basic features of..., Identify...`;
+        } else if (diffLevel.level === 'medium') {
+          difficultyGuidance = `
+DIFFICULTY: MEDIUM (🟡)
+Focus on underlying mechanisms, relationships, and application of concepts.
+Examples: How does..., Explain the relationship between..., What mechanisms lead to..., Describe...`;
+        } else {
+          difficultyGuidance = `
+DIFFICULTY: HARD (🔴)
+Focus on synthesis of multiple concepts, practical implications, and complex scenarios.
+Examples: Integrate concepts to explain..., How would you manage..., Analyze the clinical implications of..., Compare and contrast...`;
+        }
+
+        const enhancedPrompt = `You are a medical examiner creating ${diffLevel.level.toUpperCase()} difficulty viva questions based on specific study material.
+
+CONTEXT FROM STUDY MATERIAL:
+"""
+${chunk.chunkText}
+"""
+
+CONTENT TYPE: ${chunk.chunkType}
+
+${difficultyGuidance}
+
+TASK: Generate ONE intelligent medical viva question that:
+1. Tests understanding at the ${diffLevel.level} level
+2. Requires appropriate level of practical knowledge application
+3. References specific details from the material (or paraphrase if needed)
+4. Is appropriately challenging for ${diffLevel.level} level
+
+IMPORTANT: The question must be DIRECTLY tied to the content provided.
+If original content is limited, you can paraphrase or extend concepts logically.
+
+Return ONLY the question as a single sentence.`;
+
+        try {
+          const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              model: 'gpt-oss-120b',
+              messages: [{ role: 'user', content: enhancedPrompt }],
+              temperature: 0.8,
+              max_tokens: 200
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error(`API error ${response.status}`);
+          }
+
+          const data = await response.json();
+          if (!data.choices || !data.choices[0] || !data.choices[0].message || !data.choices[0].message.content) {
+            throw new Error('Invalid API response - no content in message');
+          }
+
+          const question = data.choices[0].message.content.trim();
+
+          if (question) {
+            allGeneratedQuestions.push({
+              question,
+              chunkIndex: chunk.chunkIndex,
+              totalChunks: pdfMetadata.totalChunks || 0,
+              chunkType: chunk.chunkType,
+              pdfFilename: pdfMetadata.originalFilename || 'Unknown PDF',
+              difficulty: diffLevel.level,
+              difficultyEmoji: diffLevel.emoji,
+              pdfBased: true,
+              source: 'pdf-ai'
+            });
+
+            console.log(`  ✅ Generated ${diffLevel.level} question ${i + 1}/${diffLevel.count}`);
+          }
+        } catch (error) {
+          console.error(`  ❌ Failed to generate ${diffLevel.level} question ${i + 1}:`, error.message);
+        }
+      }
+    }
+
+    console.log(`\n✅ Generated ${allGeneratedQuestions.length} total questions`);
+    return allGeneratedQuestions;
+  } catch (error) {
+    console.error('❌ Multiple Question Generation Failed:', error.message);
     throw error;
   }
 }
@@ -746,6 +892,39 @@ app.get('/pdf/info/:fileId', (req, res) => {
   );
 });
 
+// POST: Generate multiple questions with difficulty levels from PDF
+app.post('/pdf/generate-questions', async (req, res) => {
+  try {
+    const { sessionId, fileId, numberOfQuestions = 18 } = req.body;
+
+    if (!sessionId || !fileId) {
+      return res.status(400).json({
+        success: false,
+        error: 'sessionId and fileId required'
+      });
+    }
+
+    console.log(`\n📋 Request: Generate ${numberOfQuestions} questions from ${fileId}`);
+
+    const questions = await generateMultiplePDFQuestions(sessionId, fileId, numberOfQuestions);
+
+    res.json({
+      success: true,
+      questions,
+      total: questions.length,
+      easyCount: questions.filter(q => q.difficulty === 'easy').length,
+      mediumCount: questions.filter(q => q.difficulty === 'medium').length,
+      hardCount: questions.filter(q => q.difficulty === 'hard').length
+    });
+  } catch (error) {
+    console.error('❌ Batch Question Generation Error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 
 // ========================================
 // ROUTES
@@ -887,12 +1066,12 @@ app.get("/diagnostic", async (req, res) => {
 
 // POST: Save attempt
 app.post("/progress/save", (req, res) => {
-  const { sessionId, questionIndex, question, answer, score, source, chunkIndex, pdfBased } = req.body;
+  const { sessionId, questionIndex, question, answer, score, source, chunkIndex, pdfBased, difficulty } = req.body;
 
   db.run(
-    `INSERT INTO attempts (sessionId, questionIndex, question, answer, score, source, chunkIndex, pdfBased)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [sessionId, questionIndex, question, answer, score, source, chunkIndex || null, pdfBased ? 1 : 0],
+    `INSERT INTO attempts (sessionId, questionIndex, question, answer, score, source, chunkIndex, pdfBased, difficulty)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [sessionId, questionIndex, question, answer, score, source, chunkIndex || null, pdfBased ? 1 : 0, difficulty || 'generic'],
     (err) => {
       if (err) {
         console.error('❌ Failed to save attempt:', err);

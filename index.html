@@ -243,20 +243,22 @@ let appState = {
   timerInterval: null,
   timeLeft: 300,
   submitted: false,
-  isRecording: false,  // NEW: Voice recording state
-  recognition: null,   // NEW: Speech recognition object
-  finalTranscript: '', // NEW: Track final transcribed text
-  interimTranscript: '',// NEW: Track interim transcribed text
-  sources: [],  // NEW: Store question sources ('ai' or 'local')
-  sessionId: null,  // NEW: Session tracking
-  progressSaved: 0,  // NEW: Count of saved attempts
-  uploadedPDF: null, // NEW: PDF file info {fileId, filename, chunks}
-  usePDFQuestions: true, // NEW: Use PDF-based questions if PDF uploaded
-  chunkIndexes: [], // NEW: Track which chunk generated each question
-  pdfBasedFlags: [], // NEW: Track which questions are PDF-based
-  chunkTypes: [], // NEW: Track chunk types (mechanism, example, clinical, general)
-  totalChunksArray: [], // NEW: Track total chunks for each question
-  pdfFilenames: [] // NEW: Track PDF filenames for each question
+  isRecording: false,
+  recognition: null,
+  finalTranscript: '',
+  interimTranscript: '',
+  sources: [],
+  sessionId: null,
+  progressSaved: 0,
+  uploadedPDF: null,
+  usePDFQuestions: true,
+  chunkIndexes: [],
+  pdfBasedFlags: [],
+  chunkTypes: [],
+  totalChunksArray: [],
+  pdfFilenames: [],
+  difficulties: [], // NEW: Track difficulty level (easy, medium, hard) for each question
+  difficultyEmojis: [] // NEW: Track emoji for each difficulty
 };
 
 // ========================================
@@ -433,6 +435,9 @@ async function handlePDFUpload(event) {
       // Check the "use PDF questions" checkbox
       document.getElementById('usePDFQuestions').checked = true;
       appState.usePDFQuestions = true;
+
+      // Note: The batch questions will be generated when startMode() is called
+      console.log('📝 PDF ready! Questions will be generated when you start a mode (18 questions: 6 easy, 6 medium, 6 hard)');
     } else {
       alert('PDF upload failed: ' + (data.error || 'Unknown error'));
       document.getElementById('processingStatus').classList.add('hidden');
@@ -556,7 +561,7 @@ async function createSession(mode) {
 }
 
 // Save attempt to database
-async function saveAttempt(questionIndex, question, answer, score, source, chunkIndex = null, pdfBased = false) {
+async function saveAttempt(questionIndex, question, answer, score, source, chunkIndex = null, pdfBased = false, difficulty = 'generic') {
   if (!appState.sessionId) return;
 
   try {
@@ -571,7 +576,8 @@ async function saveAttempt(questionIndex, question, answer, score, source, chunk
         score,
         source,
         chunkIndex,
-        pdfBased
+        pdfBased,
+        difficulty
       })
     });
     const data = await response.json();
@@ -616,22 +622,73 @@ async function startMode(mode) {
   // Show loading state
   document.getElementById('question').innerHTML = '<div class="text-center text-gray-500">📚 Loading questions...</div>';
 
-  if (mode === 'practice') {
-    appState.totalQuestions = Infinity;
-    // Fetch initial question for practice mode (unlimited)
-    fetchQuestionsFromServer(1).then(questions => {
-      appState.questions = questions.map(q => ({ question: q.question }));
-      appState.sources = questions.map(q => q.source);
-      appState.chunkIndexes = questions.map(q => q.chunkIndex);
-      appState.pdfBasedFlags = questions.map(q => q.pdfBased);
-      appState.chunkTypes = questions.map(q => q.chunkType);
-      appState.totalChunksArray = questions.map(q => q.totalChunks);
-      appState.pdfFilenames = questions.map(q => q.pdfFilename);
-      loadQuestion();
-    });
+  // If PDF is uploaded, generate batch of questions with difficulty levels
+  if (appState.uploadedPDF && appState.usePDFQuestions) {
+    console.log(`\n🎯 Generating batch of 18 questions from PDF (6 easy, 6 medium, 6 hard)...`);
+
+    try {
+      const response = await fetch('/pdf/generate-questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: appState.sessionId,
+          fileId: appState.uploadedPDF.fileId,
+          numberOfQuestions: 18
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.questions.length > 0) {
+        console.log(`✅ Generated ${data.total} questions (${data.easyCount} easy, ${data.mediumCount} medium, ${data.hardCount} hard)`);
+
+        // Store all batch questions
+        appState.questions = data.questions.map(q => ({ question: q.question }));
+        appState.sources = data.questions.map(q => q.source);
+        appState.chunkIndexes = data.questions.map(q => q.chunkIndex);
+        appState.pdfBasedFlags = data.questions.map(q => q.pdfBased);
+        appState.chunkTypes = data.questions.map(q => q.chunkType);
+        appState.totalChunksArray = data.questions.map(q => q.totalChunks);
+        appState.pdfFilenames = data.questions.map(q => q.pdfFilename);
+        appState.difficulties = data.questions.map(q => q.difficulty);
+        appState.difficultyEmojis = data.questions.map(q => q.difficultyEmoji);
+        appState.totalQuestions = data.questions.length;
+
+        console.log(`📊 Batch questions loaded. Total: ${appState.totalQuestions}`);
+        loadQuestion();
+      } else {
+        console.warn('⚠️ Failed to generate batch questions, falling back to single questions');
+        // Fallback to old method
+        appState.totalQuestions = Infinity;
+        fetchQuestionsFromServer(1).then(questions => {
+          appState.questions = questions.map(q => ({ question: q.question }));
+          appState.sources = questions.map(q => q.source);
+          appState.chunkIndexes = questions.map(q => q.chunkIndex);
+          appState.pdfBasedFlags = questions.map(q => q.pdfBased);
+          appState.chunkTypes = questions.map(q => q.chunkType);
+          appState.totalChunksArray = questions.map(q => q.totalChunks);
+          appState.pdfFilenames = questions.map(q => q.pdfFilename);
+          loadQuestion();
+        });
+      }
+    } catch (error) {
+      console.error('❌ Batch question generation error:', error);
+      alert('Error generating batch questions. Falling back to single questions.');
+      appState.totalQuestions = Infinity;
+      fetchQuestionsFromServer(1).then(questions => {
+        appState.questions = questions.map(q => ({ question: q.question }));
+        appState.sources = questions.map(q => q.source);
+        appState.chunkIndexes = questions.map(q => q.chunkIndex);
+        appState.pdfBasedFlags = questions.map(q => q.pdfBased);
+        appState.chunkTypes = questions.map(q => q.chunkType);
+        appState.totalChunksArray = questions.map(q => q.totalChunks);
+        appState.pdfFilenames = questions.map(q => q.pdfFilename);
+        loadQuestion();
+      });
+    }
   } else {
+    // No PDF - use unlimited generic questions (old behavior)
     appState.totalQuestions = Infinity;
-    // Fetch 1 initial question for exam mode (but unlimited questions available)
     fetchQuestionsFromServer(1).then(questions => {
       appState.questions = questions.map(q => ({ question: q.question }));
       appState.sources = questions.map(q => q.source);
@@ -640,6 +697,7 @@ async function startMode(mode) {
       appState.chunkTypes = questions.map(q => q.chunkType);
       appState.totalChunksArray = questions.map(q => q.totalChunks);
       appState.pdfFilenames = questions.map(q => q.pdfFilename);
+      appState.difficulties = questions.map(q => 'generic');
       loadQuestion();
     });
   }
@@ -715,6 +773,8 @@ function loadQuestion() {
   const totalChunks = appState.totalChunksArray[appState.currentQuestionIndex];
   const chunkType = appState.chunkTypes[appState.currentQuestionIndex];
   const pdfFilename = appState.pdfFilenames[appState.currentQuestionIndex];
+  const difficulty = appState.difficulties[appState.currentQuestionIndex];
+  const difficultyEmoji = appState.difficultyEmojis[appState.currentQuestionIndex];
 
   // Display question with source badge
   let sourceBadge, badgeClass;
@@ -727,6 +787,20 @@ function loadQuestion() {
   } else {
     sourceBadge = '📝 Local';
     badgeClass = 'bg-gray-200 text-gray-800';
+  }
+
+  // Difficulty badge
+  let difficultyBadge = '';
+  if (difficulty && difficulty !== 'generic') {
+    const difficultyMap = {
+      'easy': { emoji: '🟢', label: 'Easy', color: 'bg-green-200 text-green-800' },
+      'medium': { emoji: '🟡', label: 'Medium', color: 'bg-yellow-200 text-yellow-800' },
+      'hard': { emoji: '🔴', label: 'Hard', color: 'bg-red-200 text-red-800' }
+    };
+    const diff = difficultyMap[difficulty];
+    if (diff) {
+      difficultyBadge = `<span class="text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${diff.color}">${diff.emoji} ${diff.label}</span>`;
+    }
   }
 
   // Build PDF metadata info (only for PDF-based questions)
@@ -746,6 +820,11 @@ function loadQuestion() {
           <span class="bg-purple-100 px-2 py-1 rounded">📄 ${pdfFilename}</span>
           <span class="bg-purple-100 px-2 py-1 rounded">🔢 Chunk ${chunkIndex + 1} of ${totalChunks}</span>
           <span class="bg-purple-100 px-2 py-1 rounded">${emoji} ${chunkType}</span>
+          ${difficultyBadge ? `<span class="${difficultyBadge.match(/bg-\w+-\d+/)[0]} px-2 py-1 rounded">${difficultyBadge.match(/🟢|🟡|🔴/)[0]} ${difficulty}</span>` : ''}
+        </div>
+      </div>
+    `;
+      ${difficultyBadge ? `<span class="${difficultyBadge.match(/bg-\w+-\d+/)[0]} px-2 py-1 rounded">${difficultyBadge.match(/🟢|🟡|🔴/)[0]} ${difficulty}</span>` : ''}
         </div>
       </div>
     `;
@@ -755,7 +834,10 @@ function loadQuestion() {
     <div>
       <div class="flex items-start justify-between gap-3">
         <span>${q.question}</span>
-        <span class="text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${badgeClass}">${sourceBadge}</span>
+        <div class="flex gap-2">
+          <span class="text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${badgeClass}">${sourceBadge}</span>
+          ${difficulty && difficulty !== 'generic' ? `<span class="text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${difficulty === 'easy' ? 'bg-green-200 text-green-800' : difficulty === 'medium' ? 'bg-yellow-200 text-yellow-800' : 'bg-red-200 text-red-800'}">${difficulty === 'easy' ? '🟢' : difficulty === 'medium' ? '🟡' : '🔴'} ${difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}</span>` : ''}
+        </div>
       </div>
       ${pdfMetadataHTML}
     </div>
@@ -877,7 +959,8 @@ async function submitCurrentAnswer() {
         data.score,
         appState.sources[questionIndex],
         appState.chunkIndexes[questionIndex],
-        appState.pdfBasedFlags[questionIndex]
+        appState.pdfBasedFlags[questionIndex],
+        appState.difficulties[questionIndex]
       );
     }
 
