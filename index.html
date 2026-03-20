@@ -67,9 +67,48 @@
     </button>
   </div>
 
-  <div class="mt-8 p-4 bg-gray-50 rounded-lg">
+  <div class="mt-8 p-4 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
     <h3 class="font-semibold text-gray-700 mb-3">📄 Upload Study Material (Optional)</h3>
-    <p class="text-sm text-gray-600">Feature coming soon - AI will adapt questions to your study materials</p>
+    <p class="text-xs text-gray-600 mb-3">Upload a PDF textbook chapter to get AI-generated questions specific to your study material</p>
+
+    <!-- File Upload -->
+    <input type="file" id="pdfUpload" accept=".pdf" class="hidden" onchange="handlePDFUpload(event)">
+    <button onclick="document.getElementById('pdfUpload').click()"
+            class="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition">
+      📤 Upload PDF
+    </button>
+
+    <!-- Upload Status -->
+    <div id="uploadStatus" class="mt-3 hidden">
+      <div class="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">📄</span>
+          <div>
+            <p id="uploadedFileName" class="text-sm font-semibold text-gray-800"></p>
+            <p id="uploadedFileInfo" class="text-xs text-gray-600"></p>
+          </div>
+        </div>
+        <button onclick="removePDF()" class="text-red-600 hover:text-red-800 text-sm font-semibold">
+          Remove
+        </button>
+      </div>
+    </div>
+
+    <!-- Processing Indicator -->
+    <div id="processingStatus" class="mt-3 hidden">
+      <div class="flex items-center gap-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+        <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+        <p class="text-sm text-blue-800">Processing PDF... Extracting key concepts</p>
+      </div>
+    </div>
+
+    <!-- Question Source Toggle (shown when PDF is uploaded) -->
+    <div id="questionSourceToggle" class="mt-3 hidden">
+      <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+        <input type="checkbox" id="usePDFQuestions" checked class="rounded">
+        <span>Generate questions from uploaded PDF (recommended)</span>
+      </label>
+    </div>
   </div>
 </div>
 
@@ -208,9 +247,15 @@ let appState = {
   recognition: null,   // NEW: Speech recognition object
   finalTranscript: '', // NEW: Track final transcribed text
   interimTranscript: '',// NEW: Track interim transcribed text
-  sources: [],  // NEW: Store question sources ('ai' or 'local')
+  sources: [],  // NEW: Store question sources ('ai' or '
+
+')
   sessionId: null,  // NEW: Session tracking
-  progressSaved: 0  // NEW: Count of saved attempts
+  progressSaved: 0,  // NEW: Count of saved attempts
+  uploadedPDF: null, // NEW: PDF file info {fileId, filename, chunks}
+  usePDFQuestions: true, // NEW: Use PDF-based questions if PDF uploaded
+  chunkIndexes: [], // NEW: Track which chunk generated each question
+  pdfBasedFlags: [] // NEW: Track which questions are PDF-based
 };
 
 // ========================================
@@ -341,6 +386,86 @@ function toggleVoiceInput() {
 }
 
 // ========================================
+// PDF UPLOAD & MANAGEMENT
+// ========================================
+
+// Handle PDF file upload
+async function handlePDFUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  console.log('📤 Uploading PDF:', file.name);
+
+  // Show processing indicator
+  document.getElementById('processingStatus').classList.remove('hidden');
+  document.getElementById('uploadStatus').classList.add('hidden');
+
+  // Create FormData and upload
+  const formData = new FormData();
+  formData.append('pdfFile', file);
+
+  try {
+    const response = await fetch('/pdf/upload', {
+      method: 'POST',
+      body: formData
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      // Store PDF info in state
+      appState.uploadedPDF = {
+        fileId: data.fileId,
+        filename: file.name,
+        chunks: data.totalChunks
+      };
+
+      console.log('✅ PDF uploaded successfully:', data);
+
+      // Update UI
+      document.getElementById('processingStatus').classList.add('hidden');
+      document.getElementById('uploadStatus').classList.remove('hidden');
+      document.getElementById('uploadedFileName').innerText = file.name;
+      document.getElementById('uploadedFileInfo').innerText = `${data.totalChunks} content sections extracted`;
+      document.getElementById('questionSourceToggle').classList.remove('hidden');
+
+      // Check the "use PDF questions" checkbox
+      document.getElementById('usePDFQuestions').checked = true;
+      appState.usePDFQuestions = true;
+    } else {
+      alert('PDF upload failed: ' + (data.error || 'Unknown error'));
+      document.getElementById('processingStatus').classList.add('hidden');
+      document.getElementById('pdfUpload').value = '';
+    }
+  } catch (error) {
+    console.error('❌ Upload failed:', error);
+    alert('PDF upload failed. Please try again.');
+    document.getElementById('processingStatus').classList.add('hidden');
+    document.getElementById('pdfUpload').value = '';
+  }
+}
+
+// Remove uploaded PDF
+async function removePDF() {
+  if (!appState.uploadedPDF) return;
+
+  try {
+    await fetch(`/pdf/${appState.uploadedPDF.fileId}`, { method: 'DELETE' });
+    console.log('🗑️ PDF removed');
+
+    appState.uploadedPDF = null;
+    appState.usePDFQuestions = false;
+
+    document.getElementById('uploadStatus').classList.add('hidden');
+    document.getElementById('questionSourceToggle').classList.add('hidden');
+    document.getElementById('pdfUpload').value = '';
+  } catch (error) {
+    console.error('❌ Failed to remove PDF:', error);
+    alert('Failed to remove PDF');
+  }
+}
+
+// ========================================
 // QUESTION BANK
 // ========================================
 const questionBank = [
@@ -408,15 +533,21 @@ function generateSessionId() {
 // Create a new session
 async function createSession(mode) {
   appState.sessionId = generateSessionId();
+  const fileId = appState.uploadedPDF?.fileId || null;
+
   try {
     const response = await fetch('/progress/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId: appState.sessionId, mode })
+      body: JSON.stringify({
+        sessionId: appState.sessionId,
+        mode,
+        fileId: fileId
+      })
     });
     const data = await response.json();
     if (data.success) {
-      console.log('✅ Session created:', appState.sessionId);
+      console.log('✅ Session created:', appState.sessionId, 'PDF:', fileId ? 'Yes' : 'No');
     }
   } catch (error) {
     console.error('❌ Failed to create session:', error);
@@ -424,7 +555,7 @@ async function createSession(mode) {
 }
 
 // Save attempt to database
-async function saveAttempt(questionIndex, question, answer, score, source) {
+async function saveAttempt(questionIndex, question, answer, score, source, chunkIndex = null, pdfBased = false) {
   if (!appState.sessionId) return;
 
   try {
@@ -437,7 +568,9 @@ async function saveAttempt(questionIndex, question, answer, score, source) {
         question,
         answer,
         score,
-        source
+        source,
+        chunkIndex,
+        pdfBased
       })
     });
     const data = await response.json();
@@ -456,6 +589,8 @@ function startMode(mode) {
   appState.answers = [];
   appState.scores = [];
   appState.sources = [];
+  appState.chunkIndexes = [];
+  appState.pdfBasedFlags = [];
   appState.totalScore = 0;
   appState.progressSaved = 0;
 
@@ -481,6 +616,8 @@ function startMode(mode) {
     fetchQuestionsFromServer(1).then(questions => {
       appState.questions = questions.map(q => ({ question: q.question }));
       appState.sources = questions.map(q => q.source);
+      appState.chunkIndexes = questions.map(q => q.chunkIndex);
+      appState.pdfBasedFlags = questions.map(q => q.pdfBased);
       loadQuestion();
     });
   } else {
@@ -489,6 +626,8 @@ function startMode(mode) {
     fetchQuestionsFromServer(1).then(questions => {
       appState.questions = questions.map(q => ({ question: q.question }));
       appState.sources = questions.map(q => q.source);
+      appState.chunkIndexes = questions.map(q => q.chunkIndex);
+      appState.pdfBasedFlags = questions.map(q => q.pdfBased);
       loadQuestion();
     });
   }
@@ -508,12 +647,35 @@ async function fetchQuestionsFromServer(count) {
     const questionPromises = [];
 
     for (let i = 0; i < count; i++) {
+      // Pass sessionId to enable PDF-based questions
+      const url = appState.sessionId
+        ? `/question?sessionId=${appState.sessionId}`
+        : '/question';
+
       questionPromises.push(
-        fetch('/question')
-          .then(res => res.json())
+        fetch(url)
+          .then(res => {
+            if (!res.ok) {
+              console.error(`❌ Server error: ${res.status}`);
+              throw new Error(`HTTP error! status: ${res.status}`);
+            }
+            return res.json();
+          })
+          .then(data => {
+            // Check if data has question field
+            if (data.question) {
+              return data; // Returns {question, source, chunkIndex, pdfBased, timestamp}
+            } else if (data.error) {
+              console.error(`API Error: ${data.error}`);
+              throw new Error(data.error);
+            } else {
+              throw new Error('Invalid response format');
+            }
+          })
           .catch(err => {
-            console.error(`❌ Failed to fetch question ${i + 1}:`, err);
-            return { question: questionBank[0].question, source: 'local' };
+            console.error(`❌ Failed to fetch question ${i + 1}:`, err.message);
+            // Fallback to local question
+            return { question: questionBank[0].question, source: 'local', chunkIndex: null, pdfBased: false };
           })
       );
     }
@@ -531,13 +693,25 @@ async function fetchQuestionsFromServer(count) {
 function loadQuestion() {
   const q = appState.questions[appState.currentQuestionIndex];
   const source = appState.sources[appState.currentQuestionIndex] || 'local';
+  const pdfBased = appState.pdfBasedFlags[appState.currentQuestionIndex] || false;
 
   // Display question with source badge
-  const sourceBadge = source === 'ai' ? '🤖 AI' : '📝 Local';
+  let sourceBadge, badgeClass;
+  if (pdfBased) {
+    sourceBadge = '📄 PDF-Based';
+    badgeClass = 'bg-purple-200 text-purple-800';
+  } else if (source === 'ai' || source === 'pdf-ai') {
+    sourceBadge = '🤖 AI';
+    badgeClass = 'bg-blue-200 text-blue-800';
+  } else {
+    sourceBadge = '📝 Local';
+    badgeClass = 'bg-gray-200 text-gray-800';
+  }
+
   document.getElementById('question').innerHTML = `
     <div class="flex items-start justify-between gap-3">
       <span>${q.question}</span>
-      <span class="text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${source === 'ai' ? 'bg-purple-200 text-purple-800' : 'bg-gray-200 text-gray-800'}">${sourceBadge}</span>
+      <span class="text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${badgeClass}">${sourceBadge}</span>
     </div>
   `;
 
@@ -655,7 +829,9 @@ async function submitCurrentAnswer() {
         appState.questions[questionIndex].question,
         answer,
         data.score,
-        appState.sources[questionIndex]
+        appState.sources[questionIndex],
+        appState.chunkIndexes[questionIndex],
+        appState.pdfBasedFlags[questionIndex]
       );
     }
 
@@ -709,6 +885,8 @@ function nextQuestion() {
   fetchQuestionsFromServer(1).then(questions => {
     appState.questions.push({ question: questions[0].question });
     appState.sources.push(questions[0].source);
+    appState.chunkIndexes.push(questions[0].chunkIndex);
+    appState.pdfBasedFlags.push(questions[0].pdfBased);
     loadQuestion();
   });
 }
@@ -736,6 +914,8 @@ function skipQuestion() {
   fetchQuestionsFromServer(1).then(questions => {
     appState.questions.push({ question: questions[0].question });
     appState.sources.push(questions[0].source);
+    appState.chunkIndexes.push(questions[0].chunkIndex);
+    appState.pdfBasedFlags.push(questions[0].pdfBased);
     loadQuestion();
   });
 }

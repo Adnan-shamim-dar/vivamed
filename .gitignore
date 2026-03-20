@@ -3,6 +3,7 @@ node_modules/
 .DS_Store
 *.log
 data/
+uploads/
 progress.json
 .continue/
 DIAGNOSTIC_REPORT.md
