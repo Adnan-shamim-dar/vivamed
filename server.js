@@ -634,30 +634,21 @@ async function generateQuestionsInBackground(fileId) {
     // Update status to 'extracting'
     await updateUploadedFileStatus(fileId, 'extracting');
 
-    // Generate 2 batches = 36 questions total
-    const totalBatches = 2;
-    for (let batchNum = 0; batchNum < totalBatches; batchNum++) {
-      console.log(`\n📊 Background Batch ${batchNum + 1}/${totalBatches}...`);
+    // Generate 1 batch = 10 questions total (faster extraction)
+    console.log(`\n📊 Generating 10 questions batch...`);
 
-      try {
-        const questions = await generateMultiplePDFQuestions(fileId, fileId, 18);
+    try {
+      const questions = await generateMultiplePDFQuestions(fileId, fileId, 10);
 
-        // Insert each question into cache
-        for (const q of questions) {
-          await insertCachedQuestion(fileId, q);
-        }
-
-        console.log(`✅ Cached ${questions.length} questions (Batch ${batchNum + 1})`);
-      } catch (batchError) {
-        console.error(`⚠️ Batch ${batchNum + 1} failed:`, batchError.message);
-        // Continue to next batch even if one fails
-        continue;
+      // Insert each question into cache
+      for (const q of questions) {
+        await insertCachedQuestion(fileId, q);
       }
 
-      // Small delay between batches
-      if (batchNum < totalBatches - 1) {
-        await delay(1000);
-      }
+      console.log(`✅ Cached ${questions.length} questions`);
+    } catch (batchError) {
+      console.error(`⚠️ Batch generation failed:`, batchError.message);
+      throw batchError;
     }
 
     // Update status to 'complete'
@@ -1032,7 +1023,7 @@ app.get('/pdf/generation-progress/:fileId', (req, res) => {
       }
 
       const generated = row?.generated || 0;
-      const estimatedTotal = 36;  // Target: 36 questions (2 batches of 18)
+      const estimatedTotal = 10;  // Target: 10 questions (1 batch)
       const percentComplete = Math.round((generated / estimatedTotal) * 100);
 
       res.json({
