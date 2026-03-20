@@ -824,10 +824,6 @@ function loadQuestion() {
         </div>
       </div>
     `;
-      ${difficultyBadge ? `<span class="${difficultyBadge.match(/bg-\w+-\d+/)[0]} px-2 py-1 rounded">${difficultyBadge.match(/🟢|🟡|🔴/)[0]} ${difficulty}</span>` : ''}
-        </div>
-      </div>
-    `;
   }
 
   document.getElementById('question').innerHTML = `
