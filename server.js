@@ -800,7 +800,6 @@ app.get("/question", async (req, res) => {
       pdfBased: false,
       timestamp: new Date().toISOString()
     });
-    });
   }
 });
 
