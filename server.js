@@ -84,6 +84,25 @@ db.serialize(() => {
     )
   `);
 
+  // New table for cached pre-generated questions (for background generation)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS cached_questions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      fileId TEXT,
+      question TEXT,
+      difficulty TEXT,
+      difficultyEmoji TEXT,
+      chunkIndex INTEGER,
+      totalChunks INTEGER,
+      chunkType TEXT,
+      pdfFilename TEXT,
+      pdfBased INTEGER DEFAULT 1,
+      source TEXT DEFAULT 'pdf-ai',
+      generatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(fileId) REFERENCES uploaded_files(fileId)
+    )
+  `);
+
   // Add columns to sessions table (if they don't exist)
   db.run(`ALTER TABLE sessions ADD COLUMN fileId TEXT`, (err) => {
     if (err && !err.message.includes('duplicate column')) {
@@ -561,6 +580,99 @@ Return ONLY the question as a single sentence.`;
   }
 }
 
+// Helper: Delay function
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Helper: Insert question into cached_questions table
+async function insertCachedQuestion(fileId, questionObj) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      `INSERT INTO cached_questions
+       (fileId, question, difficulty, difficultyEmoji, chunkIndex, totalChunks, chunkType, pdfFilename, pdfBased, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        fileId,
+        questionObj.question,
+        questionObj.difficulty,
+        questionObj.difficultyEmoji,
+        questionObj.chunkIndex,
+        questionObj.totalChunks,
+        questionObj.chunkType,
+        questionObj.pdfFilename,
+        1,  // pdfBased = always true
+        'pdf-ai'
+      ],
+      (err) => {
+        if (err) reject(err);
+        else resolve();
+      }
+    );
+  });
+}
+
+// Helper: Update uploaded file status
+async function updateUploadedFileStatus(fileId, status) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      `UPDATE uploaded_files SET status = ? WHERE fileId = ?`,
+      [status, fileId],
+      (err) => {
+        if (err) reject(err);
+        else resolve();
+      }
+    );
+  });
+}
+
+// Background Question Generation - Spawned after PDF upload
+async function generateQuestionsInBackground(fileId) {
+  try {
+    console.log(`\n🎯 Starting background question generation for ${fileId}...`);
+
+    // Update status to 'extracting'
+    await updateUploadedFileStatus(fileId, 'extracting');
+
+    // Generate 2 batches = 36 questions total
+    const totalBatches = 2;
+    for (let batchNum = 0; batchNum < totalBatches; batchNum++) {
+      console.log(`\n📊 Background Batch ${batchNum + 1}/${totalBatches}...`);
+
+      try {
+        const questions = await generateMultiplePDFQuestions(fileId, fileId, 18);
+
+        // Insert each question into cache
+        for (const q of questions) {
+          await insertCachedQuestion(fileId, q);
+        }
+
+        console.log(`✅ Cached ${questions.length} questions (Batch ${batchNum + 1})`);
+      } catch (batchError) {
+        console.error(`⚠️ Batch ${batchNum + 1} failed:`, batchError.message);
+        // Continue to next batch even if one fails
+        continue;
+      }
+
+      // Small delay between batches
+      if (batchNum < totalBatches - 1) {
+        await delay(1000);
+      }
+    }
+
+    // Update status to 'complete'
+    await updateUploadedFileStatus(fileId, 'complete');
+    console.log(`\n✅ Background generation complete for ${fileId}`);
+  } catch (error) {
+    console.error(`❌ Background generation failed: ${error.message}`);
+    try {
+      await updateUploadedFileStatus(fileId, 'error');
+    } catch (statusError) {
+      console.error('Could not update status:', statusError.message);
+    }
+  }
+}
+
 // Main function - decides between PDF-based or generic questions
 async function generateAIQuestion(sessionId = null) {
   if (sessionId) {
@@ -777,6 +889,14 @@ app.post('/pdf/upload', upload.single('pdfFile'), async (req, res) => {
     const result = await processPDF(req.file.path, req.file.originalname);
 
     if (result.success) {
+      // Spawn background question generation (non-blocking)
+      const fileId = result.fileId;
+      console.log(`\n📨 Spawning background generation for ${fileId}...`);
+      generateQuestionsInBackground(fileId).catch(err => {
+        console.error(`❌ Background job error for ${fileId}:`, err.message);
+      });
+
+      // Return result immediately to frontend
       res.json(result);
     } else {
       res.status(500).json(result);
@@ -891,6 +1011,79 @@ app.get('/pdf/info/:fileId', (req, res) => {
     }
   );
 });
+
+// GET: Check generation progress for pre-generated questions
+app.get('/pdf/generation-progress/:fileId', (req, res) => {
+  const { fileId } = req.params;
+
+  // Get file status and count of cached questions
+  db.get('SELECT totalChunks, status FROM uploaded_files WHERE fileId = ?', [fileId], (err, file) => {
+    if (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+    if (!file) {
+      return res.status(404).json({ success: false, error: 'PDF not found' });
+    }
+
+    // Count cached questions
+    db.get('SELECT COUNT(*) as generated FROM cached_questions WHERE fileId = ?', [fileId], (err, row) => {
+      if (err) {
+        return res.status(500).json({ success: false, error: err.message });
+      }
+
+      const generated = row?.generated || 0;
+      const estimatedTotal = 36;  // Target: 36 questions (2 batches of 18)
+      const percentComplete = Math.round((generated / estimatedTotal) * 100);
+
+      res.json({
+        success: true,
+        fileId,
+        status: file.status,
+        generated,
+        totalChunks: file.totalChunks,
+        estimatedTotal,
+        percentComplete
+      });
+    });
+  });
+});
+
+// GET: Fetch cached pre-generated questions with pagination
+app.get('/pdf/cached-questions/:fileId', (req, res) => {
+  const { fileId } = req.params;
+  const limit = parseInt(req.query.limit) || 18;
+  const offset = parseInt(req.query.offset) || 0;
+
+  // Get total count and paginated questions
+  db.get('SELECT COUNT(*) as total FROM cached_questions WHERE fileId = ?', [fileId], (err, countRow) => {
+    if (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+
+    const total = countRow?.total || 0;
+
+    db.all(
+      `SELECT question, difficulty, difficultyEmoji, chunkIndex, totalChunks, chunkType, pdfFilename, pdfBased, source
+       FROM cached_questions WHERE fileId = ? ORDER BY generatedAt ASC LIMIT ? OFFSET ?`,
+      [fileId, limit, offset],
+      (err, questions) => {
+        if (err) {
+          return res.status(500).json({ success: false, error: err.message });
+        }
+
+        res.json({
+          success: true,
+          questions: questions || [],
+          total,
+          offset,
+          limit,
+          hasMore: offset + limit < total
+        });
+      }
+    );
+  });
+});
+
 
 // POST: Generate multiple questions with difficulty levels from PDF
 app.post('/pdf/generate-questions', async (req, res) => {

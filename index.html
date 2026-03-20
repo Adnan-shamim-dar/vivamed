@@ -257,8 +257,14 @@ let appState = {
   chunkTypes: [],
   totalChunksArray: [],
   pdfFilenames: [],
-  difficulties: [], // NEW: Track difficulty level (easy, medium, hard) for each question
-  difficultyEmojis: [] // NEW: Track emoji for each difficulty
+  difficulties: [],
+  difficultyEmojis: [],
+  // NEW: Background generation and streaming fields
+  cachedQuestionsOffset: 0,      // Track how many cached questions we've fetched
+  totalAvailableInCache: 0,      // Total questions available in cache
+  isPollingForNewQuestions: false, // Polling active flag
+  questionPollingInterval: null, // Store interval ID
+  generationProgress: 0          // Track extraction progress
 };
 
 // ========================================
@@ -436,8 +442,9 @@ async function handlePDFUpload(event) {
       document.getElementById('usePDFQuestions').checked = true;
       appState.usePDFQuestions = true;
 
-      // Note: The batch questions will be generated when startMode() is called
-      console.log('📝 PDF ready! Questions will be generated when you start a mode (18 questions: 6 easy, 6 medium, 6 hard)');
+      // Start extraction progress polling
+      console.log('📚 Background generation starting... Monitoring extraction progress');
+      startExtractionPolling(data.fileId);
     } else {
       alert('PDF upload failed: ' + (data.error || 'Unknown error'));
       document.getElementById('processingStatus').classList.add('hidden');
@@ -450,6 +457,61 @@ async function handlePDFUpload(event) {
     document.getElementById('pdfUpload').value = '';
   }
 }
+
+// Start monitoring extraction progress with progress bar
+function startExtractionPolling(fileId) {
+  // Create progress bar UI if it doesn't exist
+  let progressContainer = document.getElementById('extractionProgressContainer');
+  if (!progressContainer) {
+    const uploadStatus = document.getElementById('uploadStatus');
+    progressContainer = document.createElement('div');
+    progressContainer.id = 'extractionProgressContainer';
+    progressContainer.className = 'mt-4 p-3 bg-blue-50 rounded-lg';
+    progressContainer.innerHTML = `
+      <div class="text-sm text-blue-700 font-semibold mb-2">📚 Extracting questions...</div>
+      <div class="w-full bg-blue-200 rounded-full h-2 mb-2">
+        <div id="extractionProgressBar" class="bg-blue-600 h-2 rounded-full transition-all" style="width: 0%;"></div>
+      </div>
+      <div class="text-xs text-blue-600">
+        <span id="extractionProgressText">0 / 36 questions (0%)</span>
+      </div>
+    `;
+    uploadStatus.appendChild(progressContainer);
+  }
+
+  // Poll for progress every 1 second
+  const pollingInterval = setInterval(async () => {
+    try {
+      const response = await fetch(`/pdf/generation-progress/${fileId}`);
+      const progress = await response.json();
+
+      if (progress.success) {
+        // Update progress bar
+        const progressPercent = progress.percentComplete;
+        document.getElementById('extractionProgressBar').style.width = `${progressPercent}%`;
+        document.getElementById('extractionProgressText').innerText =
+          `${progress.generated} / ${progress.estimatedTotal} questions (${progressPercent}%)`;
+
+        console.log(`📊 Extraction progress: ${progress.generated}/${progress.estimatedTotal}`);
+
+        // Stop polling when complete
+        if (progress.status === 'complete') {
+          clearInterval(pollingInterval);
+          console.log('✅ Extraction complete! Ready to start exam.');
+
+          // Update UI
+          document.getElementById('extractionProgressContainer').innerHTML = `
+            <div class="text-sm text-green-700 font-semibold">✅ Questions ready! ${progress.generated} questions extracted and ready to use.</div>
+          `;
+        }
+      }
+    } catch (error) {
+      console.error('Error checking extraction progress:', error);
+      // Continue polling despite errors
+    }
+  }, 1000);  // Poll every 1 second
+}
+
 
 // Remove uploaded PDF
 async function removePDF() {
@@ -469,6 +531,65 @@ async function removePDF() {
     console.error('❌ Failed to remove PDF:', error);
     alert('Failed to remove PDF');
   }
+}
+
+// Poll for new cached questions during exam
+function startQuestionPolling(fileId) {
+  if (appState.questionPollingInterval) {
+    clearInterval(appState.questionPollingInterval);
+  }
+
+  console.log('🔄 Starting question polling for new cached questions...');
+  appState.isPollingForNewQuestions = true;
+
+  appState.questionPollingInterval = setInterval(async () => {
+    try {
+      // Fetch new questions starting from current offset
+      const response = await fetch(
+        `/pdf/cached-questions/${fileId}?limit=6&offset=${appState.cachedQuestionsOffset}`
+      );
+      const data = await response.json();
+
+      if (data.success && data.questions.length > 0) {
+        // New questions arrived!
+        console.log(`📥 Fetched ${data.questions.length} new cached questions`);
+
+        // Append new questions to appState
+        data.questions.forEach(q => {
+          appState.questions.push({ question: q.question });
+          appState.sources.push(q.source);
+          appState.chunkIndexes.push(q.chunkIndex);
+          appState.pdfBasedFlags.push(q.pdfBased);
+          appState.chunkTypes.push(q.chunkType);
+          appState.totalChunksArray.push(q.totalChunks);
+          appState.pdfFilenames.push(q.pdfFilename);
+          appState.difficulties.push(q.difficulty);
+          appState.difficultyEmojis.push(q.difficultyEmoji);
+        });
+
+        appState.cachedQuestionsOffset = data.offset + data.questions.length;
+        appState.totalAvailableInCache = data.total;
+
+        console.log(`📊 Total available: ${appState.totalAvailableInCache} | Loaded so far: ${appState.cachedQuestionsOffset}`);
+
+        // If showing "Preparing..." message, load first question now
+        if (appState.currentQuestionIndex === 0 && appState.questions.length === data.questions.length) {
+          console.log('✅ First questions ready! Loading...');
+          loadQuestion();
+        }
+      }
+
+      // Stop polling if all questions generated
+      if (!data.hasMore) {
+        clearInterval(appState.questionPollingInterval);
+        appState.isPollingForNewQuestions = false;
+        console.log('✅ All questions generated. Polling stopped.');
+      }
+    } catch (error) {
+      console.error('Error polling for questions:', error);
+      // Continue polling despite errors
+    }
+  }, 2000);  // Poll every 2 seconds
 }
 
 // ========================================
@@ -622,27 +743,19 @@ async function startMode(mode) {
   // Show loading state
   document.getElementById('question').innerHTML = '<div class="text-center text-gray-500">📚 Loading questions...</div>';
 
-  // If PDF is uploaded, generate batch of questions with difficulty levels
+  // If PDF is uploaded, fetch cached questions (which are pre-generating in background)
   if (appState.uploadedPDF && appState.usePDFQuestions) {
-    console.log(`\n🎯 Generating batch of 18 questions from PDF (6 easy, 6 medium, 6 hard)...`);
+    console.log(`\n🎯 Fetching cached questions from PDF...`);
 
     try {
-      const response = await fetch('/pdf/generate-questions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: appState.sessionId,
-          fileId: appState.uploadedPDF.fileId,
-          numberOfQuestions: 18
-        })
-      });
-
+      // Fetch whatever cached questions are available RIGHT NOW
+      const response = await fetch(`/pdf/cached-questions/${appState.uploadedPDF.fileId}?limit=18&offset=0`);
       const data = await response.json();
 
       if (data.success && data.questions.length > 0) {
-        console.log(`✅ Generated ${data.total} questions (${data.easyCount} easy, ${data.mediumCount} medium, ${data.hardCount} hard)`);
+        // Questions available! Load them immediately
+        console.log(`✅ Loaded ${data.questions.length} cached questions immediately (${data.total} total available)`);
 
-        // Store all batch questions
         appState.questions = data.questions.map(q => ({ question: q.question }));
         appState.sources = data.questions.map(q => q.source);
         appState.chunkIndexes = data.questions.map(q => q.chunkIndex);
@@ -652,28 +765,34 @@ async function startMode(mode) {
         appState.pdfFilenames = data.questions.map(q => q.pdfFilename);
         appState.difficulties = data.questions.map(q => q.difficulty);
         appState.difficultyEmojis = data.questions.map(q => q.difficultyEmoji);
-        appState.totalQuestions = data.questions.length;
+        appState.cachedQuestionsOffset = data.questions.length;
+        appState.totalAvailableInCache = data.total;
 
-        console.log(`📊 Batch questions loaded. Total: ${appState.totalQuestions}`);
+        console.log(`📊 Loaded ${appState.questions.length} questions (${appState.totalAvailableInCache} total in cache)`);
         loadQuestion();
+
+        // Start polling for new questions in background
+        startQuestionPolling(appState.uploadedPDF.fileId);
       } else {
-        console.warn('⚠️ Failed to generate batch questions, falling back to single questions');
-        // Fallback to old method
-        appState.totalQuestions = Infinity;
-        fetchQuestionsFromServer(1).then(questions => {
-          appState.questions = questions.map(q => ({ question: q.question }));
-          appState.sources = questions.map(q => q.source);
-          appState.chunkIndexes = questions.map(q => q.chunkIndex);
-          appState.pdfBasedFlags = questions.map(q => q.pdfBased);
-          appState.chunkTypes = questions.map(q => q.chunkType);
-          appState.totalChunksArray = questions.map(q => q.totalChunks);
-          appState.pdfFilenames = questions.map(q => q.pdfFilename);
-          loadQuestion();
-        });
+        // No questions cached yet, but they're being generated in background
+        console.log('⏳ No questions cached yet, but background generation is running...');
+        document.getElementById('question').innerHTML = `
+          <div class="text-center py-8">
+            <div class="text-lg font-semibold text-blue-600 mb-4">📚 Preparing questions...</div>
+            <div class="w-full bg-gray-200 rounded-full h-2 mb-4">
+              <div class="bg-blue-600 h-2 rounded-full animate-pulse" style="width: 60%;"></div>
+            </div>
+            <p class="text-gray-600">Questions are being extracted from your PDF in the background.</p>
+            <p class="text-sm text-gray-500 mt-2">This usually takes 15-20 seconds.</p>
+          </div>
+        `;
+
+        // Start polling for questions
+        startQuestionPolling(appState.uploadedPDF.fileId);
       }
     } catch (error) {
-      console.error('❌ Batch question generation error:', error);
-      alert('Error generating batch questions. Falling back to single questions.');
+      console.error('❌ Error fetching cached questions:', error);
+      alert('Error loading questions. Falling back to single questions.');
       appState.totalQuestions = Infinity;
       fetchQuestionsFromServer(1).then(questions => {
         appState.questions = questions.map(q => ({ question: q.question }));
@@ -839,7 +958,7 @@ function loadQuestion() {
     </div>
   `;
 
-  document.getElementById('questionCounter').innerText = `Q${appState.currentQuestionIndex + 1}`;
+  document.getElementById('questionCounter').innerText = `Q${appState.currentQuestionIndex + 1}${appState.totalAvailableInCache > 0 ? ` / ${appState.totalAvailableInCache}` : ''}`;
 
   // Update progress bar - hide for both practice and exam (unlimited questions)
   document.getElementById('progressBar').style.width = '0%';
