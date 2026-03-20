@@ -581,7 +581,7 @@ async function saveAttempt(questionIndex, question, answer, score, source, chunk
   }
 }
 
-function startMode(mode) {
+async function startMode(mode) {
   appState.mode = mode;
   appState.currentQuestionIndex = 0;
   appState.answers = [];
@@ -592,8 +592,10 @@ function startMode(mode) {
   appState.totalScore = 0;
   appState.progressSaved = 0;
 
-  // Create session
-  createSession(mode);
+  // Create session and WAIT for it to complete before fetching questions
+  await createSession(mode);
+
+  console.log('✅ Session created, now fetching questions with PDF context...');
 
   document.getElementById('modeScreen').classList.add('hidden');
   document.getElementById('examScreen').classList.remove('hidden');
@@ -680,6 +682,11 @@ async function fetchQuestionsFromServer(count) {
 
     const results = await Promise.all(questionPromises);
     console.log(`✅ Fetched ${results.length} questions. Sources:`, results.map(q => q.source));
+    console.log(`📋 PDF-Based Questions:`, results.map(q => q.pdfBased ? '✅ PDF' : '❌ Generic'));
+    console.log(`🔖 Chunk Indexes:`, results.map(q => q.chunkIndex));
+    if (appState.uploadedPDF) {
+      console.log(`📄 Using PDF: ${appState.uploadedPDF.filename} (${appState.uploadedPDF.chunks} chunks)`);
+    }
     return results;
   } catch (error) {
     console.error('Failed to fetch questions from server:', error);

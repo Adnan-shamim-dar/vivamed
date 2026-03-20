@@ -402,6 +402,10 @@ Return ONLY the question as a single sentence.`;
 
 // Main function - decides between PDF-based or generic questions
 async function generateAIQuestion(sessionId = null) {
+  if (sessionId) {
+    console.log(`\n🔍 Checking session ${sessionId} for PDF...`);
+  }
+
   // If sessionId provided, check if session has linked PDF
   if (sessionId) {
     try {
@@ -412,19 +416,26 @@ async function generateAIQuestion(sessionId = null) {
         });
       });
 
+      console.log(`   Session found: ${session ? 'YES' : 'NO'}`);
+      if (session) {
+        console.log(`   fileId: ${session.fileId || 'NULL'}`);
+      }
+
       // If session has PDF, generate PDF-based question
       if (session && session.fileId) {
-        console.log(`📚 Session ${sessionId} linked to PDF ${session.fileId} - generating PDF-based question`);
+        console.log(`✅ USING PDF! Generating PDF-based question from ${session.fileId}`);
         return await generatePDFBasedQuestion(sessionId, session.fileId);
+      } else {
+        console.log(`❌ No PDF linked to session, falling back to generic question`);
       }
     } catch (error) {
-      console.warn('Error checking session PDF:', error.message);
+      console.warn('⚠️ Error checking session PDF:', error.message);
       // Fall through to generic question
     }
   }
 
   // Fallback to generic AI question
-  console.log('🤖 Generating generic AI question');
+  console.log('🤖 Generating generic AI question (no session or no PDF)');
   const question = await generateGenericAIQuestion();
   return {
     question,
@@ -873,6 +884,11 @@ app.post("/progress/session", (req, res) => {
   const { sessionId, mode, fileId } = req.body;
   const startTime = new Date().toISOString();
 
+  console.log(`\n📝 Session Creation Request:`);
+  console.log(`   sessionId: ${sessionId}`);
+  console.log(`   mode: ${mode}`);
+  console.log(`   fileId: ${fileId || 'NONE'}`);
+
   db.run(
     `INSERT OR IGNORE INTO sessions (sessionId, mode, startTime, fileId) VALUES (?, ?, ?, ?)`,
     [sessionId, mode, startTime, fileId || null],
@@ -881,7 +897,9 @@ app.post("/progress/session", (req, res) => {
         console.error('❌ Failed to create session:', err);
         return res.json({ success: false });
       }
-      console.log(`📊 Session created: ${sessionId} (mode: ${mode}, PDF: ${fileId ? 'Yes' : 'No'})`);
+      console.log(`✅ Session created: ${sessionId}`);
+      console.log(`   Mode: ${mode}`);
+      console.log(`   PDF: ${fileId ? `✅ Linked to ${fileId}` : '❌ No PDF'}`);
       res.json({ success: true, sessionId, startTime, fileId });
     }
   );
