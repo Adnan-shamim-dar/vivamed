@@ -253,7 +253,10 @@ let appState = {
   uploadedPDF: null, // NEW: PDF file info {fileId, filename, chunks}
   usePDFQuestions: true, // NEW: Use PDF-based questions if PDF uploaded
   chunkIndexes: [], // NEW: Track which chunk generated each question
-  pdfBasedFlags: [] // NEW: Track which questions are PDF-based
+  pdfBasedFlags: [], // NEW: Track which questions are PDF-based
+  chunkTypes: [], // NEW: Track chunk types (mechanism, example, clinical, general)
+  totalChunksArray: [], // NEW: Track total chunks for each question
+  pdfFilenames: [] // NEW: Track PDF filenames for each question
 };
 
 // ========================================
@@ -589,6 +592,9 @@ async function startMode(mode) {
   appState.sources = [];
   appState.chunkIndexes = [];
   appState.pdfBasedFlags = [];
+  appState.chunkTypes = [];
+  appState.totalChunksArray = [];
+  appState.pdfFilenames = [];
   appState.totalScore = 0;
   appState.progressSaved = 0;
 
@@ -618,6 +624,9 @@ async function startMode(mode) {
       appState.sources = questions.map(q => q.source);
       appState.chunkIndexes = questions.map(q => q.chunkIndex);
       appState.pdfBasedFlags = questions.map(q => q.pdfBased);
+      appState.chunkTypes = questions.map(q => q.chunkType);
+      appState.totalChunksArray = questions.map(q => q.totalChunks);
+      appState.pdfFilenames = questions.map(q => q.pdfFilename);
       loadQuestion();
     });
   } else {
@@ -628,6 +637,9 @@ async function startMode(mode) {
       appState.sources = questions.map(q => q.source);
       appState.chunkIndexes = questions.map(q => q.chunkIndex);
       appState.pdfBasedFlags = questions.map(q => q.pdfBased);
+      appState.chunkTypes = questions.map(q => q.chunkType);
+      appState.totalChunksArray = questions.map(q => q.totalChunks);
+      appState.pdfFilenames = questions.map(q => q.pdfFilename);
       loadQuestion();
     });
   }
@@ -699,6 +711,10 @@ function loadQuestion() {
   const q = appState.questions[appState.currentQuestionIndex];
   const source = appState.sources[appState.currentQuestionIndex] || 'local';
   const pdfBased = appState.pdfBasedFlags[appState.currentQuestionIndex] || false;
+  const chunkIndex = appState.chunkIndexes[appState.currentQuestionIndex];
+  const totalChunks = appState.totalChunksArray[appState.currentQuestionIndex];
+  const chunkType = appState.chunkTypes[appState.currentQuestionIndex];
+  const pdfFilename = appState.pdfFilenames[appState.currentQuestionIndex];
 
   // Display question with source badge
   let sourceBadge, badgeClass;
@@ -713,10 +729,35 @@ function loadQuestion() {
     badgeClass = 'bg-gray-200 text-gray-800';
   }
 
+  // Build PDF metadata info (only for PDF-based questions)
+  let pdfMetadataHTML = '';
+  if (pdfBased && pdfFilename) {
+    const chunkTypeEmoji = {
+      'mechanism': '🔄',
+      'example': '📝',
+      'clinical': '🏥',
+      'general': '📚'
+    };
+    const emoji = chunkTypeEmoji[chunkType] || '📄';
+
+    pdfMetadataHTML = `
+      <div class="mt-3 pt-3 border-t border-purple-200 text-xs text-purple-700">
+        <div class="flex gap-2 flex-wrap">
+          <span class="bg-purple-100 px-2 py-1 rounded">📄 ${pdfFilename}</span>
+          <span class="bg-purple-100 px-2 py-1 rounded">🔢 Chunk ${chunkIndex + 1} of ${totalChunks}</span>
+          <span class="bg-purple-100 px-2 py-1 rounded">${emoji} ${chunkType}</span>
+        </div>
+      </div>
+    `;
+  }
+
   document.getElementById('question').innerHTML = `
-    <div class="flex items-start justify-between gap-3">
-      <span>${q.question}</span>
-      <span class="text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${badgeClass}">${sourceBadge}</span>
+    <div>
+      <div class="flex items-start justify-between gap-3">
+        <span>${q.question}</span>
+        <span class="text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${badgeClass}">${sourceBadge}</span>
+      </div>
+      ${pdfMetadataHTML}
     </div>
   `;
 
@@ -892,6 +933,9 @@ function nextQuestion() {
     appState.sources.push(questions[0].source);
     appState.chunkIndexes.push(questions[0].chunkIndex);
     appState.pdfBasedFlags.push(questions[0].pdfBased);
+    appState.chunkTypes.push(questions[0].chunkType);
+    appState.totalChunksArray.push(questions[0].totalChunks);
+    appState.pdfFilenames.push(questions[0].pdfFilename);
     loadQuestion();
   });
 }
@@ -921,6 +965,9 @@ function skipQuestion() {
     appState.sources.push(questions[0].source);
     appState.chunkIndexes.push(questions[0].chunkIndex);
     appState.pdfBasedFlags.push(questions[0].pdfBased);
+    appState.chunkTypes.push(questions[0].chunkType);
+    appState.totalChunksArray.push(questions[0].totalChunks);
+    appState.pdfFilenames.push(questions[0].pdfFilename);
     loadQuestion();
   });
 }

@@ -388,9 +388,24 @@ Return ONLY the question as a single sentence.`;
 
     console.log('✅ PDF-Based Question Generated:', question.substring(0, 80) + '...');
 
+    // Get total chunks and PDF filename for metadata
+    const metadata = await new Promise((resolve, reject) => {
+      db.get(
+        'SELECT totalChunks, originalFilename FROM uploaded_files WHERE fileId = ?',
+        [fileId],
+        (err, row) => {
+          if (err) reject(err);
+          else resolve(row || {});
+        }
+      );
+    });
+
     return {
       question,
       chunkIndex: chunk.chunkIndex,
+      totalChunks: metadata.totalChunks || 0,
+      chunkType: chunk.chunkType,
+      pdfFilename: metadata.originalFilename || 'Unknown PDF',
       pdfBased: true,
       source: 'pdf-ai'
     };
@@ -748,6 +763,9 @@ app.get("/question", async (req, res) => {
         question: localQuestion.question,
         source: 'local',
         chunkIndex: null,
+        totalChunks: null,
+        chunkType: null,
+        pdfFilename: null,
         pdfBased: false,
         timestamp: new Date().toISOString()
       });
@@ -760,6 +778,9 @@ app.get("/question", async (req, res) => {
       question: result.question,
       source: result.source,
       chunkIndex: result.chunkIndex,
+      totalChunks: result.totalChunks || null,
+      chunkType: result.chunkType || null,
+      pdfFilename: result.pdfFilename || null,
       pdfBased: result.pdfBased,
       timestamp: new Date().toISOString()
     });
@@ -773,8 +794,12 @@ app.get("/question", async (req, res) => {
       question: localQuestion.question,
       source: 'local (fallback)',
       chunkIndex: null,
+      totalChunks: null,
+      chunkType: null,
+      pdfFilename: null,
       pdfBased: false,
       timestamp: new Date().toISOString()
+    });
     });
   }
 });
