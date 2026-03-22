@@ -906,7 +906,7 @@ async function handlePDFUpload(event) {
   formData.append('pdfFile', file);
 
   try {
-    const response = await fetch('http://localhost:9999/pdf/upload', {
+    const response = await fetch('http://localhost:9997/pdf/upload', {
       method: 'POST',
       body: formData,
     });
@@ -948,7 +948,7 @@ function startExtractionPolling(fileId) {
 
   const checkStatus = async () => {
     try {
-      const response = await fetch(`http://localhost:9999/pdf/status/${fileId}`);
+      const response = await fetch(`http://localhost:9997/pdf/status/${fileId}`);
       const data = await response.json();
 
       appState.generationProgress = data.extractionProgress || 0;
@@ -979,7 +979,7 @@ async function removePDF() {
   if (!appState.uploadedPDF) return;
 
   try {
-    const response = await fetch(`http://localhost:9999/pdf/${appState.uploadedPDF.fileId}`, {
+    const response = await fetch(`http://localhost:9997/pdf/${appState.uploadedPDF.fileId}`, {
       method: 'DELETE',
     });
 
@@ -1027,7 +1027,7 @@ function confirmSubjectSelection() {
   console.log('📚 Subject selected:', subject);
 
   // Send subject to backend
-  fetch('http://localhost:9999/pdf/subject', {
+  fetch('http://localhost:9997/pdf/subject', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -1059,7 +1059,7 @@ async function generateMoreQuestionsBatch(showAlert = true) {
   try {
     console.log('⚡ Generating more questions from PDF...');
 
-    const response = await fetch('http://localhost:9999/pdf/generate-more-questions', {
+    const response = await fetch('http://localhost:9997/pdf/generate-more-questions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1185,7 +1185,7 @@ function startQuestionPolling(fileId) {
 
   const checkQuestionCache = async () => {
     try {
-      const response = await fetch(`http://localhost:9999/pdf/status/${fileId}`);
+      const response = await fetch(`http://localhost:9997/pdf/status/${fileId}`);
       const data = await response.json();
 
       if (data.totalAvailableInCache !== undefined) {
@@ -1228,7 +1228,7 @@ async function createSession(mode) {
   };
 
   try {
-    const response = await fetch('http://localhost:9999/progress/session', {
+    const response = await fetch('http://localhost:9997/progress/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(sessionPayload),
@@ -1255,7 +1255,7 @@ async function saveAttempt(questionIndex, question, answer, score, source, chunk
   };
 
   try {
-    const response = await fetch('http://localhost:9999/progress/save', {
+    const response = await fetch('http://localhost:9997/progress/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(attemptPayload),
@@ -1405,7 +1405,7 @@ async function fetchQuestionsFromServer(count) {
 
       // Try to fetch from cache (questions generated in background)
       try {
-        const response = await fetch('http://localhost:9999/pdf/cached-questions', {
+        const response = await fetch('http://localhost:9997/pdf/cached-questions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1440,7 +1440,7 @@ async function fetchQuestionsFromServer(count) {
 
     for (let i = 0; i < count; i++) {
       try {
-        const response = await fetch('http://localhost:9999/question', {
+        const response = await fetch('http://localhost:9997/question', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1460,7 +1460,7 @@ async function fetchQuestionsFromServer(count) {
         console.error('Error fetching question', i, ':', error);
         // Try fallback
         try {
-          const fallbackResponse = await fetch('http://localhost:9999/question/fallback', {
+          const fallbackResponse = await fetch('http://localhost:9997/question/fallback', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ sessionId: appState.sessionId })
@@ -1621,11 +1621,11 @@ async function getPerfectAnswer() {
   btn.disabled = true;
   btn.innerHTML = '⏳ Generating perfect answer...';
   console.log('📝 Requesting perfect answer for:', currentQ.question.substring(0, 50));
-  console.log('🌐 Fetching from: http://localhost:9999/perfect-answer');
+  console.log('🌐 Fetching from: http://localhost:9997/perfect-answer');
 
   try {
     console.log('🔄 Starting fetch call...');
-    const response = await fetch('http://localhost:9999/perfect-answer', {
+    const response = await fetch('http://localhost:9997/perfect-answer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: currentQ.question })
@@ -1767,7 +1767,7 @@ async function submitCurrentAnswer() {
 
   // ORIGINAL: Use AI evaluation endpoint
   try {
-    const evalResponse = await fetch('http://localhost:9999/evaluate', {
+    const evalResponse = await fetch('http://localhost:9997/evaluate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2078,7 +2078,7 @@ let libraryCurrentDifficulty = '';
 
 async function loadLibrarySubjects() {
   try {
-    const response = await fetch('http://localhost:9999/library/subjects');
+    const response = await fetch('http://localhost:9997/library/subjects');
     const data = await response.json();
 
     if (data.success) {
@@ -2115,7 +2115,7 @@ async function loadLibraryQuestions() {
     if (difficulty) params.append('difficulty', difficulty);
     params.append('limit', '20');
 
-    const response = await fetch(`http://localhost:9999/library/questions?${params}`);
+    const response = await fetch(`http://localhost:9997/library/questions?${params}`);
     const data = await response.json();
 
     const listDiv = document.getElementById('libraryQuestionsList');
@@ -2198,7 +2198,7 @@ async function loadMCQQuestion() {
     // Determine fileId if exists
     const fileId = appState.currentModeUploadedPDF?.fileId || appState.mcqUploadedPDF?.fileId || null;
 
-    const response = await fetch('http://localhost:9999/mcq-question', {
+    const response = await fetch('http://localhost:9997/mcq-question', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2338,7 +2338,7 @@ async function submitMCQAnswer() {
 // Save MCQ attempt to database
 async function saveMCQAttempt(isCorrect, score) {
   try {
-    await fetch('http://localhost:9999/progress/save', {
+    await fetch('http://localhost:9997/progress/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
