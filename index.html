@@ -260,9 +260,14 @@
                   <p id="uploadedFileInfo" class="text-sm text-gray-400"></p>
                 </div>
               </div>
-              <button onclick="removePDF()" class="text-red-400 hover:text-red-300 font-semibold text-sm px-3 py-1 rounded-lg hover:bg-red-500/10 transition-smooth">
-                Remove
-              </button>
+              <div class="flex gap-2">
+                <button onclick="generateMoreQuestions()" class="text-blue-400 hover:text-blue-300 font-semibold text-sm px-3 py-1 rounded-lg hover:bg-blue-500/10 transition-smooth">
+                  ⚡ Generate More
+                </button>
+                <button onclick="removePDF()" class="text-red-400 hover:text-red-300 font-semibold text-sm px-3 py-1 rounded-lg hover:bg-red-500/10 transition-smooth">
+                  Remove
+                </button>
+              </div>
             </div>
           </div>
 
@@ -858,6 +863,54 @@ function confirmSubjectSelection() {
   // Show question source toggle
   document.getElementById('questionSourceToggle').classList.remove('hidden');
 }
+
+// ========================================
+// GENERATE MORE QUESTIONS FROM PDF
+// ========================================
+async function generateMoreQuestions() {
+  if (!appState.uploadedPDF || !appState.pdfSubject) {
+    alert('Please upload a PDF and select a subject first');
+    return;
+  }
+
+  const btn = event.target;
+  btn.disabled = true;
+  btn.innerHTML = '⏳ Generating...';
+
+  try {
+    console.log('⚡ Generating more questions from PDF...');
+
+    const response = await fetch('http://localhost:9999/pdf/generate-more-questions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: appState.sessionId || 'library-gen-' + Date.now(),
+        fileId: appState.uploadedPDF.fileId,
+        subject: appState.pdfSubject,
+        numberOfQuestions: 6  // Generate 6 more
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server error ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('✅ Generated', data.questions.length, 'new questions');
+
+    // Show success message
+    alert(`✅ Generated ${data.questions.length} new questions!\n\nEasy: ${data.easyCount}\nMedium: ${data.mediumCount}\nHard: ${data.hardCount}\n\nCheck Browse Library to see them!`);
+
+    btn.innerHTML = '⚡ Generate More';
+    btn.disabled = false;
+  } catch (error) {
+    console.error('Error generating more questions:', error);
+    alert('Failed to generate more questions. Check console for details.');
+    btn.innerHTML = '⚡ Generate More';
+    btn.disabled = false;
+  }
+}
+
 
 // Handle "Other" dropdown selection - show custom input
 document.addEventListener('DOMContentLoaded', () => {

@@ -516,10 +516,71 @@ ANSWER:`
 }
 
 // ========================================
+// SIMILARITY CHECK (Deduplication System)
+// ========================================
+function calculateSimilarity(text1, text2) {
+  // Convert to lowercase and split into words
+  const words1 = text1.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+  const words2 = text2.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+
+  // Find common words
+  const set2 = new Set(words2);
+  const commonWords = words1.filter(w => set2.has(w)).length;
+
+  // Calculate similarity score (0-1)
+  const maxLength = Math.max(words1.length, words2.length);
+  const similarity = maxLength > 0 ? commonWords / maxLength : 0;
+
+  return similarity;
+}
+
+async function isQuestionTooSimilar(newQuestion, subject) {
+  return new Promise((resolve, reject) => {
+    // Check against existing questions in same subject
+    libraryDb.all(
+      `SELECT question FROM library_questions WHERE subject = ? LIMIT 50`,
+      [subject],
+      (err, rows) => {
+        if (err) {
+          console.error('Similarity check error:', err);
+          resolve(false); // Allow if query fails
+          return;
+        }
+
+        if (!rows || rows.length === 0) {
+          resolve(false); // No existing questions, so not similar
+          return;
+        }
+
+        // Check similarity against each existing question
+        const similarityThreshold = 0.6; // 60% similarity = too similar
+        for (const row of rows) {
+          const similarity = calculateSimilarity(newQuestion, row.question);
+          if (similarity > similarityThreshold) {
+            console.log(`⚠️  Question too similar (${Math.round(similarity * 100)}%): "${newQuestion.substring(0, 60)}..."`);
+            resolve(true); // Is similar
+            return;
+          }
+        }
+
+        resolve(false); // Not similar to any existing questions
+      }
+    );
+  });
+}
+
+// ========================================
 // SAVE QUESTION TO LIBRARY (Memory-Efficient)
 // ========================================
 async function saveQuestionToLibrary(question, perfectAnswer, subject, difficulty, chunkText, sourceType = 'pdf-ai', sourcePdf = null) {
   try {
+    // Check for similarity before saving
+    const isSimilar = await isQuestionTooSimilar(question, subject);
+    if (isSimilar) {
+      console.log('📌 Skipping similar question');
+      return false; // Question not saved
+    }
+
     // Extract tags from question (keywords)
     const tags = [];
     const keywords = ['diagnosis', 'mechanism', 'pathophysiology', 'treatment', 'anatomy', 'clinical', 'differential', 'management', 'complications', 'risk'];
@@ -551,14 +612,14 @@ async function saveQuestionToLibrary(question, perfectAnswer, subject, difficult
                WHERE id = 1`
             );
 
-            resolve();
+            resolve(true); // Return true = question saved
           }
         }
       );
     });
   } catch (error) {
     console.error('❌ saveQuestionToLibrary failed:', error.message);
-    // Silent fail - don't break question generation
+    return false; // Silent fail - don't break question generation
   }
 }
 
@@ -1540,10 +1601,41 @@ app.post('/pdf/generate-questions', async (req, res) => {
   }
 });
 
+// POST: Generate more questions from existing PDF (for "Generate More" button)
+app.post('/pdf/generate-more-questions', async (req, res) => {
+  try {
+    const { sessionId, fileId, numberOfQuestions = 6, subject = 'General' } = req.body;
 
-// ========================================
-// ROUTES
-// ========================================
+    if (!fileId) {
+      return res.status(400).json({
+        success: false,
+        error: 'fileId required'
+      });
+    }
+
+    console.log(`\n⚡ Request: Generate ${numberOfQuestions} MORE questions from ${fileId} (Subject: ${subject})`);
+
+    const questions = await generateMultiplePDFQuestions(sessionId || 'more-' + Date.now(), fileId, numberOfQuestions, subject);
+
+    res.json({
+      success: true,
+      questions,
+      total: questions.length,
+      easyCount: questions.filter(q => q.difficulty === 'easy').length,
+      mediumCount: questions.filter(q => q.difficulty === 'medium').length,
+      hardCount: questions.filter(q => q.difficulty === 'hard').length,
+      note: 'Deduplication system prevents similar questions from library'
+    });
+  } catch (error) {
+    console.error('❌ Additional Question Generation Error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+
 
 // GET: Random practice question
 app.get("/question", async (req, res) => {
