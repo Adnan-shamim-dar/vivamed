@@ -4,225 +4,462 @@
 <head>
 <title>AI Medical Viva Trainer</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+  * {
+    font-family: 'Inter', sans-serif;
+  }
+
+  /* Premium gradient background */
+  body {
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 25%, #1a0f2e 50%, #0f172a 100%);
+    background-attachment: fixed;
+  }
+
+  /* Animated faint background blur blobs */
+  .blob-1 {
+    position: fixed;
+    width: 400px;
+    height: 400px;
+    background: radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%);
+    border-radius: 50%;
+    top: -100px;
+    left: -100px;
+    pointer-events: none;
+    z-index: 0;
+    animation: drift 15s ease-in-out infinite;
+  }
+
+  .blob-2 {
+    position: fixed;
+    width: 500px;
+    height: 500px;
+    background: radial-gradient(circle, rgba(168, 85, 247, 0.08) 0%, transparent 70%);
+    border-radius: 50%;
+    bottom: -150px;
+    right: -100px;
+    pointer-events: none;
+    z-index: 0;
+    animation: drift 20s ease-in-out infinite reverse;
+  }
+
+  .blob-3 {
+    position: fixed;
+    width: 350px;
+    height: 350px;
+    background: radial-gradient(circle, rgba(6, 182, 212, 0.08) 0%, transparent 70%);
+    border-radius: 50%;
+    top: 50%;
+    right: 10%;
+    pointer-events: none;
+    z-index: 0;
+    animation: drift 18s ease-in-out infinite;
+  }
+
+  @keyframes drift {
+    0%, 100% {
+      transform: translate(0, 0);
+    }
+    50% {
+      transform: translate(30px, -30px);
+    }
+  }
+
+  /* Glassmorphism effect */
+  .glass-effect {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Hover lift effect */
+  .card-hover {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .card-hover:hover {
+    transform: translateY(-8px);
+  }
+
+  /* Smooth transitions */
+  .transition-smooth {
+    transition: all 0.3s ease;
+  }
+
+  /* Button glow effect */
+  .btn-glow {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn-glow::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.3) 0%, transparent 70%);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .btn-glow:hover::before {
+    opacity: 1;
+  }
+</style>
 </head>
 
-<body class="bg-gray-100 flex items-center justify-center min-h-screen overflow-y-auto py-8 relative">
+<body class="min-h-screen overflow-y-auto relative text-gray-50">
 
-<!-- Medical Background Graphics -->
-<svg class="absolute top-0 left-0 w-full h-full opacity-20 pointer-events-none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Row 1 -->
-  <g transform="translate(60, 50) rotate(-20)">
-    <circle cx="0" cy="0" r="4" fill="none" stroke="#ff1744" stroke-width="3"/>
-    <line x1="4" y1="0" x2="30" y2="0" stroke="#ff1744" stroke-width="3"/>
-    <line x1="30" y1="-3" x2="35" y2="0" stroke="#ff1744" stroke-width="3"/>
-    <line x1="30" y1="3" x2="35" y2="0" stroke="#ff1744" stroke-width="3"/>
-  </g>
-  <g transform="translate(200, 40)">
-    <ellipse cx="0" cy="0" rx="9" ry="6" fill="none" stroke="#1e40af" stroke-width="3"/>
-    <line x1="-9" y1="0" x2="0" y2="0" stroke="#1e40af" stroke-width="3"/>
-  </g>
-  <g transform="translate(340, 60) rotate(35)">
-    <path d="M 0 8 C -6 2 -10 -2 -10 -8 C -10 -12 -6 -15 -2 -15 C 0 -15 2 -12 0 -10 C -2 -12 0 -15 2 -15 C 6 -15 10 -12 10 -8 C 10 -2 6 2 0 8 Z" fill="none" stroke="#ff2051" stroke-width="3"/>
-  </g>
-  <g transform="translate(480, 50)">
-    <rect x="-4" y="-10" width="8" height="14" fill="none" stroke="#00bcd4" stroke-width="3" rx="1"/>
-    <rect x="-5" y="-12" width="10" height="3" fill="none" stroke="#00bcd4" stroke-width="2"/>
-  </g>
-  <g transform="translate(620, 70) rotate(-30)">
-    <circle cx="-5" cy="0" r="4" fill="none" stroke="#22c55e" stroke-width="3"/>
-    <circle cx="5" cy="0" r="4" fill="none" stroke="#22c55e" stroke-width="3"/>
-    <line x1="-1" y1="-4" x2="-1" y2="4" stroke="#22c55e" stroke-width="3"/>
-  </g>
-  <g transform="translate(760, 45) rotate(15)">
-    <ellipse cx="0" cy="0" rx="10" ry="6" fill="none" stroke="#ff7f00" stroke-width="3"/>
-    <line x1="-10" y1="0" x2="0" y2="0" stroke="#ff7f00" stroke-width="3"/>
-  </g>
-  <g transform="translate(900, 60)">
-    <circle cx="0" cy="0" r="6" fill="none" stroke="#a855f7" stroke-width="3"/>
-    <path d="M -6 0 Q -15 -10 -15 -18" fill="none" stroke="#a855f7" stroke-width="3"/>
-    <path d="M 6 0 Q 15 -10 15 -18" fill="none" stroke="#a855f7" stroke-width="3"/>
-  </g>
-  <g transform="translate(1040, 50) rotate(25)">
-    <path d="M 0 -12 Q 6 -8 0 0 Q -6 8 0 12" fill="none" stroke="#ec4899" stroke-width="3"/>
-    <path d="M 0 -12 Q -6 -8 0 0 Q 6 8 0 12" fill="none" stroke="#ec4899" stroke-width="3" stroke-dasharray="2,2"/>
-  </g>
-  <g transform="translate(1180, 65) rotate(-10)">
-    <circle cx="0" cy="5" r="5" fill="none" stroke="#0891b2" stroke-width="3"/>
-    <line x1="0" y1="0" x2="0" y2="-10" stroke="#0891b2" stroke-width="3"/>
-    <circle cx="0" cy="-10" r="4" fill="none" stroke="#0891b2" stroke-width="3"/>
-  </g>
-</svg>
+<!-- Background Blobs (NEW) -->
+<div class="blob-1"></div>
+<div class="blob-2"></div>
+<div class="blob-3"></div>
 
-<!-- MODE SELECTION SCREEN -->
-<div id="modeScreen" class="bg-white p-12 rounded-xl shadow-2xl w-[550px] relative z-10">
-  <h1 class="text-4xl font-bold text-center mb-2 text-gray-800">AI Medical Viva Trainer</h1>
-  <p class="text-center text-gray-600 mb-8">Master your medical knowledge with AI-powered viva training</p>
+<!-- TOP NAVBAR (NEW) -->
+<nav class="fixed top-0 left-0 right-0 h-16 glass-effect border-b border-white/10 z-50">
+  <div class="max-w-7xl mx-auto h-full px-6 flex items-center justify-between">
+    <!-- Left: App Name -->
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center font-bold text-white shadow-lg">
+        AI
+      </div>
+      <div>
+        <h1 class="text-lg font-bold gradient-text">AI Viva</h1>
+        <p class="text-xs text-gray-400">Medical Trainer</p>
+      </div>
+    </div>
 
-  <div class="space-y-4">
-    <button onclick="startMode('practice')" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition">
-      🎓 Practice Mode (Free Study)
-    </button>
-    <button onclick="startMode('exam')" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg transition">
-      📋 Exam Mode (10 Questions)
-    </button>
+    <!-- Center: Navigation (shown on main screen) -->
+    <div id="navMenu" class="hidden md:flex items-center gap-8">
+      <button onclick="navToSection('nav-practice')" class="text-sm font-medium text-gray-300 hover:text-white transition-smooth">Practice</button>
+      <button onclick="navToSection('nav-exam')" class="text-sm font-medium text-gray-300 hover:text-white transition-smooth">Exam</button>
+      <button onclick="navToSection('nav-upload')" class="text-sm font-medium text-gray-300 hover:text-white transition-smooth">Upload</button>
+      <button onclick="navToSection('nav-stats')" class="text-sm font-medium text-gray-300 hover:text-white transition-smooth">Dashboard</button>
+    </div>
+
+    <!-- Right: Profile Circle -->
+    <div class="flex items-center gap-4">
+      <div class="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold text-white text-sm shadow-lg shadow-purple-500/50 cursor-pointer hover:shadow-lg hover:shadow-purple-600/50 transition-smooth">
+        U
+      </div>
+    </div>
   </div>
+</nav>
 
-  <div class="mt-8 p-4 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-    <h3 class="font-semibold text-gray-700 mb-3">📄 Upload Study Material (Optional)</h3>
-    <p class="text-xs text-gray-600 mb-3">Upload a PDF textbook chapter to get AI-generated questions specific to your study material</p>
+<!-- MAIN CONTENT WRAPPER -->
+<div class="relative z-10">
 
-    <!-- File Upload -->
-    <input type="file" id="pdfUpload" accept=".pdf" class="hidden" onchange="handlePDFUpload(event)">
-    <button onclick="document.getElementById('pdfUpload').click()"
-            class="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition">
-      📤 Upload PDF
-    </button>
+  <!-- MODE SELECTION SCREEN -->
+  <div id="modeScreen" class="min-h-screen pt-20 pb-12 px-4">
+    <div class="max-w-6xl mx-auto">
 
-    <!-- Upload Status -->
-    <div id="uploadStatus" class="mt-3 hidden">
-      <div class="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200">
-        <div class="flex items-center gap-2">
-          <span class="text-xl">📄</span>
-          <div>
-            <p id="uploadedFileName" class="text-sm font-semibold text-gray-800"></p>
-            <p id="uploadedFileInfo" class="text-xs text-gray-600"></p>
+      <!-- HERO SECTION (NEW) -->
+      <div class="text-center mb-16 mt-8">
+        <h2 class="text-5xl md:text-6xl font-bold mb-4">
+          <span class="gradient-text">AI Medical Viva Trainer</span>
+        </h2>
+        <p class="text-lg text-gray-400 max-w-2xl mx-auto">
+          Train like a real oral exam with AI-powered evaluation. Intelligent chunking from your study materials for targeted practice.
+        </p>
+        <!-- Love Message -->
+        <p class="text-sm md:text-base mt-8 italic text-pink-300 max-w-2xl mx-auto font-light leading-relaxed">
+          ✨ I love you so much Kashfiyah, More than I have the means to prove ✨
+        </p>
+      </div>
+
+      <!-- GRID LAYOUT -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+
+        <!-- SECTION A: MODE SELECTION (NEW CARD STYLE) -->
+
+        <!-- Practice Mode Card -->
+        <div id="nav-practice" class="group card-hover">
+          <button
+            onclick="startMode('practice')"
+            class="w-full h-full p-8 rounded-2xl glass-effect border border-white/10 hover:border-blue-400/50 relative overflow-hidden transition-smooth">
+
+            <!-- Gradient overlay on hover -->
+            <div class="absolute inset-0 bg-gradient-to-br from-blue-500/20 to-purple-500/20 opacity-0 group-hover:opacity-100 transition-smooth"></div>
+
+            <div class="relative z-10 text-left">
+              <div class="text-5xl mb-4">🎓</div>
+              <h3 class="text-2xl font-bold mb-2 text-white">Practice Mode</h3>
+              <p class="text-gray-400 mb-6">Free study with unlimited questions. Learn at your own pace.</p>
+
+              <div class="flex items-center gap-2 text-blue-400 font-semibold">
+                <span>Start Training</span>
+                <svg class="w-5 h-5 group-hover:translate-x-2 transition-smooth" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"></path>
+                </svg>
+              </div>
+            </div>
+          </button>
+        </div>
+
+        <!-- Exam Mode Card -->
+        <div id="nav-exam" class="group card-hover">
+          <button
+            onclick="startMode('exam')"
+            class="w-full h-full p-8 rounded-2xl glass-effect border border-white/10 hover:border-pink-400/50 relative overflow-hidden transition-smooth">
+
+            <!-- Gradient overlay on hover -->
+            <div class="absolute inset-0 bg-gradient-to-br from-pink-500/20 to-red-500/20 opacity-0 group-hover:opacity-100 transition-smooth"></div>
+
+            <div class="relative z-10 text-left">
+              <div class="text-5xl mb-4">📋</div>
+              <h3 class="text-2xl font-bold mb-2 text-white">Exam Mode</h3>
+              <p class="text-gray-400 mb-6">Timed exam with 10 questions. Get scored and detailed feedback.</p>
+
+              <div class="flex items-center gap-2 text-pink-400 font-semibold">
+                <span>Start Exam</span>
+                <svg class="w-5 h-5 group-hover:translate-x-2 transition-smooth" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"></path>
+                </svg>
+              </div>
+            </div>
+          </button>
+        </div>
+
+      </div>
+
+      <!-- SECTION B: PDF UPLOAD (GLASSMORPHISM) -->
+      <div id="nav-upload" class="mb-12 card-hover">
+        <div class="p-8 rounded-2xl glass-effect border-2 border-dashed border-white/20 hover:border-purple-400/50 transition-smooth">
+          <div id="uploadContainer" class="text-center">
+            <div class="text-4xl mb-4">📄</div>
+            <h3 class="text-2xl font-bold mb-2 text-white">Upload Study Material</h3>
+            <p class="text-gray-400 mb-6">Upload a PDF textbook chapter to get AI-generated questions specific to your study material</p>
+
+            <!-- File Upload -->
+            <input type="file" id="pdfUpload" accept=".pdf" class="hidden" onchange="handlePDFUpload(event)">
+            <button
+              onclick="document.getElementById('pdfUpload').click()"
+              class="inline-block px-8 py-3 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold transition-smooth hover:scale-105 shadow-lg hover:shadow-purple-600/50">
+              📤 Choose PDF File
+            </button>
+          </div>
+
+          <!-- Upload Status (hidden initially) -->
+          <div id="uploadStatus" class="mt-6 hidden">
+            <div class="p-4 rounded-xl glass-effect border border-white/10 flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <span class="text-2xl">✅</span>
+                <div class="text-left">
+                  <p id="uploadedFileName" class="font-semibold text-white"></p>
+                  <p id="uploadedFileInfo" class="text-sm text-gray-400"></p>
+                </div>
+              </div>
+              <button onclick="removePDF()" class="text-red-400 hover:text-red-300 font-semibold text-sm px-3 py-1 rounded-lg hover:bg-red-500/10 transition-smooth">
+                Remove
+              </button>
+            </div>
+          </div>
+
+          <!-- Processing Indicator -->
+          <div id="processingStatus" class="mt-6 hidden">
+            <div class="p-4 rounded-xl bg-blue-500/20 border border-blue-400/50 flex items-center gap-3">
+              <div class="animate-spin rounded-full h-5 w-5 border-2 border-blue-400 border-t-transparent"></div>
+              <p id="processingText" class="text-blue-200">Processing PDF... Extracting key concepts</p>
+            </div>
+          </div>
+
+          <!-- Question Source Toggle -->
+          <div id="questionSourceToggle" class="mt-6 hidden">
+            <label class="flex items-center gap-3 text-gray-300 cursor-pointer hover:text-white transition-smooth">
+              <input type="checkbox" id="usePDFQuestions" checked class="rounded-md w-5 h-5 cursor-pointer">
+              <span>Generate questions from uploaded PDF (recommended)</span>
+            </label>
           </div>
         </div>
-        <button onclick="removePDF()" class="text-red-600 hover:text-red-800 text-sm font-semibold">
-          Remove
+      </div>
+
+      <!-- SECTION C: STATS PLACEHOLDER (NEW) -->
+      <div id="nav-stats" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- Stat Card 1 -->
+        <div class="p-6 rounded-2xl glass-effect border border-white/10 text-center card-hover">
+          <div class="text-4xl mb-3">📊</div>
+          <p class="text-gray-400 text-sm mb-2">Score</p>
+          <p class="text-3xl font-bold text-blue-400">--</p>
+        </div>
+
+        <!-- Stat Card 2 -->
+        <div class="p-6 rounded-2xl glass-effect border border-white/10 text-center card-hover">
+          <div class="text-4xl mb-3">❓</div>
+          <p class="text-gray-400 text-sm mb-2">Questions</p>
+          <p class="text-3xl font-bold text-purple-400">--</p>
+        </div>
+
+        <!-- Stat Card 3 -->
+        <div class="p-6 rounded-2xl glass-effect border border-white/10 text-center card-hover">
+          <div class="text-4xl mb-3">🎯</div>
+          <p class="text-gray-400 text-sm mb-2">Accuracy</p>
+          <p class="text-3xl font-bold text-pink-400">--</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- EXAM/PRACTICE SCREEN -->
+  <div id="examScreen" class="min-h-screen pt-20 pb-12 px-4 hidden">
+    <div class="max-w-4xl mx-auto">
+
+      <!-- Header with Progress -->
+      <div class="mb-8">
+        <div class="flex justify-between items-center mb-4">
+          <h1 id="modeTitle" class="text-3xl font-bold gradient-text">Exam Mode</h1>
+          <div id="questionCounter" class="text-sm font-semibold text-gray-400">Q1/10</div>
+        </div>
+
+        <!-- Progress Bar (UPDATED) -->
+        <div class="w-full h-1 bg-white/10 rounded-full overflow-hidden">
+          <div id="progressBar" class="h-full bg-gradient-to-r from-blue-500 to-purple-600 rounded-full transition-all duration-300" style="width: 0%;"></div>
+        </div>
+      </div>
+
+      <!-- Timer Section (UPDATED) -->
+      <div class="p-6 rounded-2xl glass-effect border border-white/10 mb-8">
+        <div class="flex justify-between items-center">
+          <div>
+            <p class="text-xs text-gray-400 uppercase tracking-wider mb-2">Time Remaining</p>
+            <div id="timerDisplay" class="text-4xl font-bold gradient-text">30s</div>
+          </div>
+          <div class="w-48 h-2 bg-white/10 rounded-full overflow-hidden">
+            <div id="timerBar" class="h-full bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full transition-all" style="width: 100%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Question Section (UPDATED - HIGHLIGHTED CARD WITH LEFT BORDER) -->
+      <div class="mb-8">
+        <p class="text-xs text-gray-400 uppercase tracking-wider mb-3 font-semibold">Professor Question</p>
+        <div class="p-8 rounded-2xl glass-effect border-l-4 border-blue-500 border border-white/10 relative">
+          <!-- Accent background -->
+          <div class="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent opacity-50 rounded-2xl pointer-events-none"></div>
+          <p id="question" class="text-xl font-semibold leading-relaxed relative z-10 text-gray-50"></p>
+
+          <!-- Source Badge (PDF or AI) -->
+          <div id="sourceBadge" class="mt-4 inline-block px-3 py-1 rounded-lg text-xs font-semibold bg-white/10 text-gray-300"></div>
+        </div>
+      </div>
+
+      <!-- Answer Input Section (UPDATED) -->
+      <div class="mb-8">
+        <label class="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-3 block">Your Answer</label>
+        <div class="relative">
+          <textarea
+            id="answer"
+            placeholder="Type your answer here... or use the mic button to speak."
+            class="w-full h-40 p-6 rounded-2xl glass-effect border border-white/20 focus:border-blue-400/50 focus:outline-none text-gray-50 placeholder-gray-500 resize-none transition-smooth text-base leading-relaxed">
+          </textarea>
+          <button
+            id="voiceBtn"
+            onclick="toggleVoiceInput()"
+            class="absolute bottom-4 right-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold py-2 px-4 rounded-xl transition-smooth hover:scale-105 shadow-lg flex items-center gap-2 btn-glow">
+            🎤 Speak
+          </button>
+        </div>
+        <div class="flex justify-between items-center mt-3">
+          <p id="charCount" class="text-xs text-gray-500">0 characters</p>
+          <p id="listeningIndicator" class="text-xs text-red-400 hidden font-semibold flex items-center gap-1">
+            <span class="inline-block w-2 h-2 bg-red-400 rounded-full animate-pulse"></span> Listening...
+          </p>
+        </div>
+      </div>
+
+      <!-- Action Buttons (UPDATED) -->
+      <div id="actionButtons" class="grid grid-cols-3 gap-3 mb-8">
+        <button onclick="submitCurrentAnswer()" class="px-6 py-3 rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold transition-smooth hover:scale-105 shadow-lg">
+          ✓ Submit
+        </button>
+        <button onclick="skipQuestion()" class="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white font-bold transition-smooth hover:scale-105 shadow-lg">
+          ⏭️ Skip
+        </button>
+        <button onclick="backToMenu()" class="px-6 py-3 rounded-xl bg-gray-700 hover:bg-gray-600 text-white font-bold transition-smooth hover:scale-105 shadow-lg">
+          ↩️ Menu
         </button>
       </div>
-    </div>
 
-    <!-- Processing Indicator -->
-    <div id="processingStatus" class="mt-3 hidden">
-      <div class="flex items-center gap-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
-        <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-        <p class="text-sm text-blue-800">Processing PDF... Extracting key concepts</p>
+      <!-- ==== NEW: PERFECT ANSWER BUTTON ==== -->
+      <div class="mb-8">
+        <button onclick="getPerfectAnswer()" id="perfectAnswerBtn" class="w-full px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold transition-smooth hover:scale-105 shadow-lg">
+          💡 Show Perfect Answer
+        </button>
       </div>
-    </div>
 
-    <!-- Question Source Toggle (shown when PDF is uploaded) -->
-    <div id="questionSourceToggle" class="mt-3 hidden">
-      <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-        <input type="checkbox" id="usePDFQuestions" checked class="rounded">
-        <span>Generate questions from uploaded PDF (recommended)</span>
-      </label>
-    </div>
-  </div>
-</div>
+      <!-- Next Button (shown after submission) -->
+      <div id="nextButtonWrapper" class="hidden mb-8">
+        <button onclick="nextQuestion()" class="w-full px-8 py-4 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold text-lg transition-smooth hover:scale-105 shadow-lg flex items-center justify-center gap-2">
+          ➜ Next Question
+        </button>
+      </div>
 
-<!-- EXAM/PRACTICE SCREEN -->
-<div id="examScreen" class="bg-white p-10 rounded-xl shadow-xl w-[600px] relative z-10 hidden" style="max-height: 85vh; overflow-y-auto;">
+      <!-- Feedback Section (UPDATED) -->
+      <div id="feedback" class="hidden mb-8 p-6 rounded-2xl glass-effect border border-white/10"></div>
 
-  <!-- Header with Progress -->
-  <div class="mb-6">
-    <div class="flex justify-between items-center mb-2">
-      <h1 id="modeTitle" class="text-2xl font-bold text-blue-600">Exam Mode</h1>
-      <div id="questionCounter" class="text-sm font-semibold text-gray-600">Q1/10</div>
-    </div>
+      <!-- Navigation Buttons -->
+      <div id="navigationBtns" class="hidden flex gap-3 mb-8">
+        <button onclick="previousQuestion()" class="flex-1 px-6 py-3 rounded-xl bg-gray-700 hover:bg-gray-600 text-white font-bold transition-smooth hover:scale-105">
+          ← Previous
+        </button>
+        <button onclick="nextQuestion()" class="flex-1 px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold transition-smooth hover:scale-105">
+          Next →
+        </button>
+      </div>
 
-    <!-- Progress Bar -->
-    <div class="w-full bg-gray-200 rounded-full h-2">
-      <div id="progressBar" class="bg-blue-600 h-2 rounded-full" style="width: 0%;"></div>
     </div>
   </div>
 
-  <!-- Timer -->
-  <div class="flex justify-between items-center mb-6 p-3 bg-gray-50 rounded-lg">
-    <div>
-      <p class="text-xs text-gray-600">Time Remaining</p>
-      <div id="timerDisplay" class="text-2xl font-bold text-blue-600">30s</div>
+  <!-- RESULTS SCREEN (UPDATED) -->
+  <div id="resultsScreen" class="min-h-screen pt-20 pb-12 px-4 hidden">
+    <div class="max-w-2xl mx-auto">
+
+      <div class="text-center mb-12">
+        <h1 class="text-5xl font-bold gradient-text mb-2">Exam Complete!</h1>
+        <p class="text-gray-400">Here's how you performed</p>
+      </div>
+
+      <!-- Score Display (UPDATED) -->
+      <div class="p-8 rounded-2xl glass-effect border border-white/10 mb-8 text-center relative overflow-hidden">
+        <div class="absolute inset-0 bg-gradient-to-br from-blue-500/20 to-purple-500/20 opacity-50"></div>
+        <div class="relative z-10">
+          <p class="text-sm text-gray-400 uppercase tracking-wider mb-3">Final Score</p>
+          <p id="finalScore" class="text-6xl font-bold gradient-text mb-4">0/100</p>
+          <p id="performanceMsg" class="text-lg font-semibold text-gray-300"></p>
+        </div>
+      </div>
+
+      <!-- Answer Review -->
+      <div class="mb-8">
+        <h3 class="text-xl font-bold text-white mb-4 flex items-center gap-2">
+          <span>📊</span> Answer Review
+        </h3>
+        <div id="answersReview" class="space-y-3 max-h-96 overflow-y-auto">
+        </div>
+      </div>
+
+      <!-- Result Buttons (UPDATED) -->
+      <div class="flex flex-col sm:flex-row gap-4">
+        <button onclick="restartExam()" class="flex-1 px-8 py-4 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold transition-smooth hover:scale-105 shadow-lg">
+          🔄 Try Again
+        </button>
+        <button onclick="backToMode()" class="flex-1 px-8 py-4 rounded-xl bg-gray-700 hover:bg-gray-600 text-white font-bold transition-smooth hover:scale-105 shadow-lg">
+          ↩️ Back to Menu
+        </button>
+      </div>
+
     </div>
-    <div class="w-32 bg-gray-300 rounded-full h-3">
-      <div id="timerBar" class="bg-blue-600 h-3 rounded-full" style="width: 100%;"></div>
-    </div>
-  </div>
-
-  <!-- Question -->
-  <div class="mb-6">
-    <p class="text-sm font-semibold text-gray-600 mb-2">Professor Question:</p>
-    <p id="question" class="text-lg text-gray-800 font-semibold p-4 bg-blue-50 rounded-lg border-l-4 border-blue-600"></p>
-  </div>
-
-  <!-- Answer Input -->
-  <div class="mb-6">
-    <label class="text-sm font-semibold text-gray-700">Your Answer:</label>
-    <div class="relative">
-      <textarea
-        id="answer"
-        placeholder="Type your answer here... or use the mic button to speak."
-        class="border-2 border-gray-300 p-3 w-full rounded-lg mt-2 h-32 focus:border-blue-500 focus:outline-none resize-none pr-16"></textarea>
-      <button
-        id="voiceBtn"
-        onclick="toggleVoiceInput()"
-        class="absolute bottom-3 right-3 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-3 rounded transition text-sm flex items-center gap-1">
-        🎤
-      </button>
-    </div>
-    <p id="charCount" class="text-xs text-gray-500 mt-1">0 characters</p>
-    <p id="listeningIndicator" class="text-xs text-red-600 mt-1 hidden font-semibold">🔴 Listening...</p>
-  </div>
-
-  <!-- Buttons -->
-  <div id="actionButtons" class="grid grid-cols-3 gap-3 mb-6">
-    <button onclick="submitCurrentAnswer()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition">
-      ✓ Submit
-    </button>
-    <button onclick="skipQuestion()" class="bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-lg transition">
-      ⏭️ Skip
-    </button>
-    <button onclick="backToMenu()" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition">
-      ↩️ Menu
-    </button>
-  </div>
-
-  <!-- Next Button (shown after submission) -->
-  <div id="nextButtonWrapper" class="grid grid-cols-3 gap-3 mb-6 hidden">
-    <button onclick="nextQuestion()" class="col-span-3 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition text-lg">
-      ➜ Next Question
-    </button>
-  </div>
-
-  <!-- Feedback -->
-  <div id="feedback" class="p-4 rounded-lg hidden mb-4"></div>
-
-  <!-- Navigation -->
-  <div id="navigationBtns" class="flex gap-3 hidden">
-    <button onclick="previousQuestion()" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition">
-      ← Previous
-    </button>
-    <button onclick="nextQuestion()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition">
-      Next →
-    </button>
-  </div>
-
-</div>
-
-<!-- RESULTS SCREEN -->
-<div id="resultsScreen" class="bg-white p-10 rounded-xl shadow-xl w-[600px] relative z-10 hidden">
-
-  <h1 class="text-3xl font-bold text-center mb-6 text-gray-800">Exam Complete!</h1>
-
-  <div class="p-6 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg mb-6">
-    <p class="text-center text-sm text-gray-600 mb-2">Final Score</p>
-    <p id="finalScore" class="text-5xl font-bold text-center text-blue-600 mb-2">0/100</p>
-    <p id="performanceMsg" class="text-center text-lg font-semibold text-gray-800"></p>
-  </div>
-
-  <div class="mb-6">
-    <h3 class="font-bold text-gray-800 mb-3">📊 Answer Review:</h3>
-    <div id="answersReview" class="space-y-4 max-h-64 overflow-y-auto">
-    </div>
-  </div>
-
-  <div class="flex gap-3">
-    <button onclick="restartExam()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition">
-      🔄 Try Again
-    </button>
-    <button onclick="backToMode()" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition">
-      ↩ Back to Menu
-    </button>
   </div>
 
 </div>
@@ -264,8 +501,58 @@ let appState = {
   totalAvailableInCache: 0,      // Total questions available in cache
   isPollingForNewQuestions: false, // Polling active flag
   questionPollingInterval: null, // Store interval ID
-  generationProgress: 0          // Track extraction progress
+  generationProgress: 0,         // Track extraction progress
+  // ==== NEW: Perfect answer tracking ====
+  isPerfectAnswerLoaded: false   // Flag to give 10/10 for perfect answers
 };
+
+// ========================================
+// ==== NEW: BROWSER HISTORY MANAGEMENT ====
+// ========================================
+const historyState = {
+  currentPage: 'dashboard', // dashboard, exam, results
+  examMode: null // 'practice' or 'exam'
+};
+
+// Initialize history
+window.addEventListener('DOMContentLoaded', () => {
+  // Set initial state
+  window.history.replaceState({ page: 'dashboard' }, '', window.location.href);
+});
+
+// Handle back button
+window.addEventListener('popstate', (event) => {
+  console.log('🔙 Back button pressed, state:', event.state);
+
+  if (event.state?.page === 'dashboard') {
+    showDashboard();
+  } else if (event.state?.page === 'exam') {
+    // Don't actually go back to exam screen - just show it
+    // (user should use the Menu button to properly exit)
+  }
+});
+
+function pushHistoryState(page, mode = null) {
+  const state = { page: page, mode: mode };
+  window.history.pushState(state, '', window.location.href);
+  console.log('📍 Pushed history state:', state);
+}
+
+function showDashboard() {
+  console.log('📊 Showing dashboard');
+  clearInterval(appState.timerInterval);
+  if (appState.questionPollingInterval) clearInterval(appState.questionPollingInterval);
+
+  document.getElementById('examScreen').classList.add('hidden');
+  document.getElementById('resultsScreen').classList.add('hidden');
+  document.getElementById('modeScreen').classList.remove('hidden');
+  document.getElementById('navMenu').classList.add('hidden');
+
+  appState.questions = [];
+  appState.answers = [];
+  appState.scores = [];
+  historyState.currentPage = 'dashboard';
+}
 
 // ========================================
 // SPEECH RECOGNITION INITIALIZATION
@@ -289,718 +576,532 @@ function initSpeechRecognition() {
     appState.isRecording = true;
     appState.finalTranscript = '';
     appState.interimTranscript = '';
-    document.getElementById('voiceBtn').classList.add('bg-red-600', 'hover:bg-red-700');
-    document.getElementById('voiceBtn').classList.remove('bg-blue-500', 'hover:bg-blue-600');
-    document.getElementById('voiceBtn').innerText = '⏹️';
+    document.getElementById('voiceBtn').classList.add('from-red-600', 'to-red-700', 'hover:from-red-700', 'hover:to-red-800');
+    document.getElementById('voiceBtn').classList.remove('from-blue-600', 'to-blue-700', 'hover:from-blue-700', 'hover:to-blue-800');
+    document.getElementById('voiceBtn').innerText = '⏹️ Stop';
     document.getElementById('listeningIndicator').classList.remove('hidden');
   };
 
   recognition.onresult = function(event) {
     appState.interimTranscript = '';
     let allTranscripts = '';
-
     for (let i = event.resultIndex; i < event.results.length; i++) {
-      const result = event.results[i];
-
-      // Get the first (and usually only) alternative
-      if (result.length === 0) continue;
-
-      const transcript = result[0].transcript || '';
-
-      if (!transcript) {
-        continue;
-      }
-
-      allTranscripts += transcript + ' ';
-
-      if (result.isFinal) {
-        // Add final result to accumulated final transcript
-        appState.finalTranscript += transcript + ' ';
+      const transcriptSegment = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        appState.finalTranscript += transcriptSegment + ' ';
       } else {
-        // Accumulate interim results
-        appState.interimTranscript = transcript;
+        appState.interimTranscript += transcriptSegment;
       }
     }
-
-    // Update textarea with final text + interim text in real-time
-    const answerField = document.getElementById('answer');
-    let displayText = (appState.finalTranscript + appState.interimTranscript).trim();
-
-    if (displayText) {
-      answerField.value = displayText;
-      updateCharCount();
-    }
-
-    // Display interim text in listening indicator
-    if (appState.interimTranscript) {
-      document.getElementById('listeningIndicator').innerText = '🔴 Listening: "' + appState.interimTranscript + '"';
-    } else if (appState.finalTranscript) {
-      document.getElementById('listeningIndicator').innerText = '🔴 Listening...';
-    }
-  };
-
-  recognition.onerror = function(event) {
-    console.error('Speech error:', event.error);
+    allTranscripts = appState.finalTranscript + appState.interimTranscript;
+    document.getElementById('answer').value = allTranscripts.trim();
+    updateCharCount();
   };
 
   recognition.onend = function() {
-    // Only stop if user manually pressed the button to stop
-    // If isRecording is still true, the browser paused - so restart
-    if (appState.isRecording) {
-      try {
-        recognition.start(); // Restart listening
-      } catch (e) {
-        console.log('Recognition already started');
-      }
-    } else {
-      // User manually stopped - update UI
-      document.getElementById('voiceBtn').classList.add('bg-blue-500', 'hover:bg-blue-600');
-      document.getElementById('voiceBtn').classList.remove('bg-red-600', 'hover:bg-red-700');
-      document.getElementById('voiceBtn').innerText = '🎤';
-      document.getElementById('listeningIndicator').classList.add('hidden');
-    }
+    appState.isRecording = false;
+    document.getElementById('voiceBtn').classList.remove('from-red-600', 'to-red-700', 'hover:from-red-700', 'hover:to-red-800');
+    document.getElementById('voiceBtn').classList.add('from-blue-600', 'to-blue-700', 'hover:from-blue-700', 'hover:to-blue-800');
+    document.getElementById('voiceBtn').innerText = '🎤 Speak';
+    document.getElementById('listeningIndicator').classList.add('hidden');
+  };
+
+  recognition.onerror = function(event) {
+    console.error('Speech recognition error', event.error);
   };
 
   appState.recognition = recognition;
   return recognition;
 }
 
+// ========================================
+// VOICE INPUT TOGGLE
+// ========================================
 function toggleVoiceInput() {
-  if (!appState.recognition) {
-    initSpeechRecognition();
-  }
-
-  if (!appState.recognition) return;
+  if (!appState.recognition) initSpeechRecognition();
 
   if (appState.isRecording) {
-    // User wants to stop recording
-    // Finalize any interim text by adding it to final transcript
-    if (appState.interimTranscript) {
-      appState.finalTranscript += appState.interimTranscript + ' ';
-      appState.interimTranscript = '';
-    }
-
-    // Update textarea one last time with final text
-    const answerField = document.getElementById('answer');
-    answerField.value = appState.finalTranscript.trim();
-    updateCharCount();
-
-    appState.isRecording = false;
     appState.recognition.stop();
   } else {
-    // User wants to start recording
-    appState.isRecording = true;
     appState.recognition.start();
   }
 }
 
 // ========================================
-// PDF UPLOAD & MANAGEMENT
+// PDF UPLOAD HANDLING
 // ========================================
-
-// Handle PDF file upload
 async function handlePDFUpload(event) {
   const file = event.target.files[0];
   if (!file) return;
 
-  console.log('📤 Uploading PDF:', file.name);
+  console.log('PDF selected:', file.name);
 
   // Show processing indicator
   document.getElementById('processingStatus').classList.remove('hidden');
-  document.getElementById('uploadStatus').classList.add('hidden');
 
-  // Create FormData and upload
   const formData = new FormData();
   formData.append('pdfFile', file);
 
   try {
-    const response = await fetch('/pdf/upload', {
+    const response = await fetch('http://localhost:9999/pdf/upload', {
       method: 'POST',
-      body: formData
+      body: formData,
     });
 
     const data = await response.json();
+    console.log('PDF upload response:', data);
 
     if (data.success) {
-      // Store PDF info in state
       appState.uploadedPDF = {
         fileId: data.fileId,
         filename: file.name,
-        chunks: data.totalChunks
+        totalChunks: data.totalChunks,
       };
 
-      console.log('✅ PDF uploaded successfully:', data);
+      // Automatically prefer PDF questions
+      appState.usePDFQuestions = true;
+      document.getElementById('usePDFQuestions').checked = true;
 
-      // Update UI
-      document.getElementById('processingStatus').classList.add('hidden');
+      // Show upload status
+      document.getElementById('uploadContainer').classList.add('hidden');
       document.getElementById('uploadStatus').classList.remove('hidden');
-      document.getElementById('uploadedFileName').innerText = file.name;
-      document.getElementById('uploadedFileInfo').innerText = `${data.totalChunks} content sections extracted`;
+      document.getElementById('uploadedFileName').textContent = file.name;
+      document.getElementById('uploadedFileInfo').textContent = `${data.totalChunks} study chunks extracted`;
+
+      // Show question source toggle
       document.getElementById('questionSourceToggle').classList.remove('hidden');
 
-      // Check the "use PDF questions" checkbox
-      document.getElementById('usePDFQuestions').checked = true;
-      appState.usePDFQuestions = true;
-
-      // Start extraction progress polling
-      console.log('📚 Background generation starting... Monitoring extraction progress');
+      // Start polling for extraction completion
       startExtractionPolling(data.fileId);
-    } else {
-      alert('PDF upload failed: ' + (data.error || 'Unknown error'));
-      document.getElementById('processingStatus').classList.add('hidden');
-      document.getElementById('pdfUpload').value = '';
     }
   } catch (error) {
-    console.error('❌ Upload failed:', error);
-    alert('PDF upload failed. Please try again.');
+    console.error('Error uploading PDF:', error);
+    alert('Failed to upload PDF. Please try again.');
     document.getElementById('processingStatus').classList.add('hidden');
-    document.getElementById('pdfUpload').value = '';
   }
 }
 
-// Start monitoring extraction progress with progress bar
+// ========================================
+// EXTRACTION POLLING
+// ========================================
 function startExtractionPolling(fileId) {
-  // Create progress bar UI if it doesn't exist
-  let progressContainer = document.getElementById('extractionProgressContainer');
-  if (!progressContainer) {
-    const uploadStatus = document.getElementById('uploadStatus');
-    progressContainer = document.createElement('div');
-    progressContainer.id = 'extractionProgressContainer';
-    progressContainer.className = 'mt-4 p-3 bg-blue-50 rounded-lg';
-    progressContainer.innerHTML = `
-      <div class="text-sm text-blue-700 font-semibold mb-2">📚 Extracting questions...</div>
-      <div class="w-full bg-blue-200 rounded-full h-2 mb-2">
-        <div id="extractionProgressBar" class="bg-blue-600 h-2 rounded-full transition-all" style="width: 0%;"></div>
-      </div>
-      <div class="text-xs text-blue-600">
-        <span id="extractionProgressText">0 / 10 questions (0%)</span>
-      </div>
-    `;
-    uploadStatus.appendChild(progressContainer);
-  }
+  const maxAttempts = 30; // 30 second timeout
+  let attempts = 0;
 
-  // Poll for progress every 1 second
-  const pollingInterval = setInterval(async () => {
+  const checkStatus = async () => {
     try {
-      const response = await fetch(`/pdf/generation-progress/${fileId}`);
-      const progress = await response.json();
+      const response = await fetch(`http://localhost:9999/pdf/status/${fileId}`);
+      const data = await response.json();
 
-      if (progress.success) {
-        // Update progress bar
-        const progressPercent = progress.percentComplete;
-        document.getElementById('extractionProgressBar').style.width = `${progressPercent}%`;
-        document.getElementById('extractionProgressText').innerText =
-          `${progress.generated} / ${progress.estimatedTotal} questions (${progressPercent}%)`;
+      appState.generationProgress = data.extractionProgress || 0;
+      document.getElementById('processingText').textContent = `Processing PDF... ${appState.generationProgress}% complete`;
 
-        console.log(`📊 Extraction progress: ${progress.generated}/${progress.estimatedTotal}`);
-
-        // Stop polling when complete
-        if (progress.status === 'complete') {
-          clearInterval(pollingInterval);
-          console.log('✅ Extraction complete! Ready to start exam.');
-
-          // Update UI
-          document.getElementById('extractionProgressContainer').innerHTML = `
-            <div class="text-sm text-green-700 font-semibold">✅ Questions ready! ${progress.generated} questions extracted and ready to use.</div>
-          `;
-        }
+      if (data.status === 'completed') {
+        document.getElementById('processingStatus').classList.add('hidden');
+        console.log('PDF extraction completed');
+        clearInterval(pollingInterval);
+      } else if (attempts >= maxAttempts) {
+        document.getElementById('processingStatus').classList.add('hidden');
+        console.log('PDF processing timeout');
+        clearInterval(pollingInterval);
       }
+      attempts++;
     } catch (error) {
-      console.error('Error checking extraction progress:', error);
-      // Continue polling despite errors
+      console.error('Error checking extraction status:', error);
     }
-  }, 1000);  // Poll every 1 second
+  };
+
+  const pollingInterval = setInterval(checkStatus, 1000);
 }
 
-
-// Remove uploaded PDF
+// ========================================
+// REMOVE PDF
+// ========================================
 async function removePDF() {
   if (!appState.uploadedPDF) return;
 
   try {
-    await fetch(`/pdf/${appState.uploadedPDF.fileId}`, { method: 'DELETE' });
-    console.log('🗑️ PDF removed');
+    const response = await fetch(`http://localhost:9999/pdf/${appState.uploadedPDF.fileId}`, {
+      method: 'DELETE',
+    });
 
-    appState.uploadedPDF = null;
-    appState.usePDFQuestions = false;
+    if (response.ok) {
+      appState.uploadedPDF = null;
+      appState.usePDFQuestions = false;
 
-    document.getElementById('uploadStatus').classList.add('hidden');
-    document.getElementById('questionSourceToggle').classList.add('hidden');
-    document.getElementById('pdfUpload').value = '';
+      // Reset upload UI
+      document.getElementById('uploadContainer').classList.remove('hidden');
+      document.getElementById('uploadStatus').classList.add('hidden');
+      document.getElementById('questionSourceToggle').classList.add('hidden');
+      document.getElementById('pdfUpload').value = '';
+
+      console.log('PDF removed successfully');
+    }
   } catch (error) {
-    console.error('❌ Failed to remove PDF:', error);
-    alert('Failed to remove PDF');
+    console.error('Error removing PDF:', error);
   }
 }
 
-// Poll for new cached questions during exam
+// ========================================
+// QUESTION POLLING FOR GENERATION
+// ========================================
 function startQuestionPolling(fileId) {
-  if (appState.questionPollingInterval) {
-    clearInterval(appState.questionPollingInterval);
-  }
+  const maxAttempts = 120; // 2 minute timeout
+  let attempts = 0;
 
-  console.log('🔄 Starting question polling for new cached questions...');
-  appState.isPollingForNewQuestions = true;
-
-  appState.questionPollingInterval = setInterval(async () => {
+  const checkQuestionCache = async () => {
     try {
-      // Fetch new questions starting from current offset
-      const response = await fetch(
-        `/pdf/cached-questions/${fileId}?limit=6&offset=${appState.cachedQuestionsOffset}`
-      );
+      const response = await fetch(`http://localhost:9999/pdf/status/${fileId}`);
       const data = await response.json();
 
-      if (data.success && data.questions.length > 0) {
-        // New questions arrived!
-        console.log(`📥 Fetched ${data.questions.length} new cached questions`);
-
-        // Append new questions to appState
-        data.questions.forEach(q => {
-          appState.questions.push({ question: q.question });
-          appState.sources.push(q.source);
-          appState.chunkIndexes.push(q.chunkIndex);
-          appState.pdfBasedFlags.push(q.pdfBased);
-          appState.chunkTypes.push(q.chunkType);
-          appState.totalChunksArray.push(q.totalChunks);
-          appState.pdfFilenames.push(q.pdfFilename);
-          appState.difficulties.push(q.difficulty);
-          appState.difficultyEmojis.push(q.difficultyEmoji);
-        });
-
-        appState.cachedQuestionsOffset = data.offset + data.questions.length;
-        appState.totalAvailableInCache = data.total;
-
-        console.log(`📊 Total available: ${appState.totalAvailableInCache} | Loaded so far: ${appState.cachedQuestionsOffset}`);
-
-        // If showing "Preparing..." message, load first question now
-        if (appState.currentQuestionIndex === 0 && appState.questions.length === data.questions.length) {
-          console.log('✅ First questions ready! Loading...');
-          loadQuestion();
-        }
+      if (data.totalAvailableInCache !== undefined) {
+        appState.totalAvailableInCache = data.totalAvailableInCache;
+        console.log(`Questions available in cache: ${appState.totalAvailableInCache}`);
       }
 
-      // Stop polling if all questions generated
-      if (!data.hasMore) {
+      if (appState.totalAvailableInCache >= appState.currentQuestionIndex + 1) {
+        console.log('Questions ready, stopping polling');
         clearInterval(appState.questionPollingInterval);
         appState.isPollingForNewQuestions = false;
-        console.log('✅ All questions generated. Polling stopped.');
+        loadQuestion();
+      } else if (attempts >= maxAttempts) {
+        console.log('Question generation timeout');
+        clearInterval(appState.questionPollingInterval);
+        appState.isPollingForNewQuestions = false;
+        loadQuestion();
       }
+      attempts++;
     } catch (error) {
-      console.error('Error polling for questions:', error);
-      // Continue polling despite errors
+      console.error('Error checking question cache:', error);
     }
-  }, 2000);  // Poll every 2 seconds
+  };
+
+  appState.questionPollingInterval = setInterval(checkQuestionCache, 500);
 }
 
 // ========================================
-// QUESTION BANK
+// SESSION & PROGRESS MANAGEMENT
 // ========================================
-const questionBank = [
-  {
-    question: "Explain the action potential and describe the phases involved in cardiac muscle contraction.",
-    followUp: "What ion channels are responsible for each phase?",
-    difficulty: "medium"
-  },
-  {
-    question: "Describe Starling's Law of the Heart and its physiological significance.",
-    followUp: "How does end-diastolic volume affect cardiac output?",
-    difficulty: "medium"
-  },
-  {
-    question: "What are the causes and mechanisms of metabolic acidosis?",
-    followUp: "How does the body compensate for metabolic acidosis?",
-    difficulty: "easy"
-  },
-  {
-    question: "Explain the renin-angiotensin-aldosterone system and its role in blood pressure regulation.",
-    followUp: "What happens when this system is inhibited by ACE inhibitors?",
-    difficulty: "hard"
-  },
-  {
-    question: "Describe the phases of the cardiac cycle and corresponding pressure changes.",
-    followUp: "What pathological conditions affect these pressure relationships?",
-    difficulty: "hard"
-  },
-  {
-    question: "Explain the Frank-Starling mechanism at the molecular level.",
-    followUp: "How does calcium sensitivity change with sarcomere length?",
-    difficulty: "hard"
-  },
-  {
-    question: "What is the role of the parasympathetic nervous system in cardiac regulation?",
-    followUp: "What effects does acetylcholine have on AV node conduction?",
-    difficulty: "easy"
-  },
-  {
-    question: "Describe the pathophysiology of heart failure including systolic and diastolic dysfunction.",
-    followUp: "What compensatory mechanisms activate in chronic heart failure?",
-    difficulty: "hard"
-  },
-  {
-    question: "Explain blood pressure regulation through short-term and long-term mechanisms.",
-    followUp: "How do baroreceptor reflexes differ from chemoreceptor reflexes?",
-    difficulty: "medium"
-  },
-  {
-    question: "What is the clinical significance of the Windkessel effect in large arteries?",
-    followUp: "How is this effect altered in aging and atherosclerosis?",
-    difficulty: "hard"
-  }
-];
-
-// ========================================
-// MODES & INITIALIZATION
-// ========================================
-
-// Generate unique session ID
 function generateSessionId() {
   return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 }
 
-// Create a new session
 async function createSession(mode) {
-  appState.sessionId = generateSessionId();
-  const fileId = appState.uploadedPDF?.fileId || null;
+  const sessionPayload = {
+    sessionId: appState.sessionId,
+    mode: mode,
+    fileId: appState.uploadedPDF ? appState.uploadedPDF.fileId : null,
+  };
 
   try {
-    const response = await fetch('/progress/session', {
+    const response = await fetch('http://localhost:9999/progress/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId: appState.sessionId,
-        mode,
-        fileId: fileId
-      })
+      body: JSON.stringify(sessionPayload),
     });
+
     const data = await response.json();
-    if (data.success) {
-      console.log('✅ Session created:', appState.sessionId, 'PDF:', fileId ? 'Yes' : 'No');
-    }
+    console.log('Session created:', data);
   } catch (error) {
-    console.error('❌ Failed to create session:', error);
+    console.error('Error creating session:', error);
   }
 }
 
-// Save attempt to database
 async function saveAttempt(questionIndex, question, answer, score, source, chunkIndex = null, pdfBased = false, difficulty = 'generic') {
-  if (!appState.sessionId) return;
+  const attemptPayload = {
+    sessionId: appState.sessionId,
+    questionIndex: questionIndex,
+    question: question,
+    answer: answer,
+    score: score,
+    source: source,
+    chunkIndex: chunkIndex,
+    pdfBased: pdfBased,
+    difficulty: difficulty,
+  };
 
   try {
-    const response = await fetch('/progress/save', {
+    const response = await fetch('http://localhost:9999/progress/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId: appState.sessionId,
-        questionIndex,
-        question,
-        answer,
-        score,
-        source,
-        chunkIndex,
-        pdfBased,
-        difficulty
-      })
+      body: JSON.stringify(attemptPayload),
     });
+
     const data = await response.json();
-    if (data.success) {
-      appState.progressSaved++;
-      console.log(`📊 Progress saved (${appState.progressSaved})`);
-    }
+    appState.progressSaved += 1;
+    console.log(`Attempt saved. Total saved: ${appState.progressSaved}`);
   } catch (error) {
-    console.error('Failed to save progress:', error);
+    console.error('Error saving attempt:', error);
   }
 }
 
+// ========================================
+// MODE INITIALIZATION
+// ========================================
 async function startMode(mode) {
+  // Clear previous state
   appState.mode = mode;
   appState.currentQuestionIndex = 0;
+  appState.questions = [];
   appState.answers = [];
   appState.scores = [];
+  appState.totalScore = 0;
   appState.sources = [];
+  appState.submitted = false;
+  appState.sessionId = generateSessionId();
+  appState.progressSaved = 0;
   appState.chunkIndexes = [];
   appState.pdfBasedFlags = [];
   appState.chunkTypes = [];
   appState.totalChunksArray = [];
   appState.pdfFilenames = [];
-  appState.totalScore = 0;
-  appState.progressSaved = 0;
+  appState.difficulties = [];
+  appState.difficultyEmojis = [];
+  appState.cachedQuestionsOffset = 0;
+  appState.totalAvailableInCache = 0;
+  appState.isPollingForNewQuestions = false;
 
-  // Create session and WAIT for it to complete before fetching questions
+  // ===== NEW: Push history state for exam/practice mode =====
+  pushHistoryState('exam', mode);
+  historyState.currentPage = 'exam';
+  historyState.examMode = mode;
+
+  // Create session BEFORE fetching questions
   await createSession(mode);
 
-  console.log('✅ Session created, now fetching questions with PDF context...');
+  // Set mode-specific settings
+  if (mode === 'exam') {
+    appState.totalQuestions = 10;
+    document.getElementById('timerDisplay').textContent = '300s';
+    appState.timeLeft = 300;
+  } else {
+    appState.totalQuestions = Infinity;
+    appState.timeLeft = 30;
+  }
 
+  // Update UI
   document.getElementById('modeScreen').classList.add('hidden');
   document.getElementById('examScreen').classList.remove('hidden');
-  document.getElementById('resultsScreen').classList.add('hidden');
+  document.getElementById('navMenu').classList.remove('hidden');
+  document.getElementById('modeTitle').textContent = mode === 'exam' ? 'Exam Mode' : 'Practice Mode';
+  document.getElementById('modeTitle').classList.toggle('text-pink-400', mode === 'exam');
+  document.getElementById('modeTitle').classList.toggle('text-blue-400', mode !== 'exam');
 
-  // Update mode title
-  const modeTitle = mode === 'practice'
-    ? '🎓 Practice Mode (Unlimited Questions)'
-    : '📋 Exam Mode (Unlimited Questions)';
-  document.getElementById('modeTitle').innerText = modeTitle;
+  // Fetch questions
+  const questionsToFetch = mode === 'exam' ? appState.totalQuestions : 3;
+  const fetchedQuestions = await fetchQuestionsFromServer(questionsToFetch);
 
-  // Show loading state
-  document.getElementById('question').innerHTML = '<div class="text-center text-gray-500">📚 Loading questions...</div>';
+  if (fetchedQuestions.length > 0) {
+    appState.questions = fetchedQuestions;
 
-  // If PDF is uploaded, fetch cached questions (which are pre-generating in background)
-  if (appState.uploadedPDF && appState.usePDFQuestions) {
-    console.log(`\n🎯 Fetching cached questions from PDF...`);
-
-    try {
-      // Fetch whatever cached questions are available RIGHT NOW
-      const response = await fetch(`/pdf/cached-questions/${appState.uploadedPDF.fileId}?limit=18&offset=0`);
-      const data = await response.json();
-
-      if (data.success && data.questions.length > 0) {
-        // Questions available! Load them immediately
-        console.log(`✅ Loaded ${data.questions.length} cached questions immediately (${data.total} total available)`);
-
-        appState.questions = data.questions.map(q => ({ question: q.question }));
-        appState.sources = data.questions.map(q => q.source);
-        appState.chunkIndexes = data.questions.map(q => q.chunkIndex);
-        appState.pdfBasedFlags = data.questions.map(q => q.pdfBased);
-        appState.chunkTypes = data.questions.map(q => q.chunkType);
-        appState.totalChunksArray = data.questions.map(q => q.totalChunks);
-        appState.pdfFilenames = data.questions.map(q => q.pdfFilename);
-        appState.difficulties = data.questions.map(q => q.difficulty);
-        appState.difficultyEmojis = data.questions.map(q => q.difficultyEmoji);
-        appState.cachedQuestionsOffset = data.questions.length;
-        appState.totalAvailableInCache = data.total;
-
-        console.log(`📊 Loaded ${appState.questions.length} questions (${appState.totalAvailableInCache} total in cache)`);
-        loadQuestion();
-
-        // Start polling for new questions in background
-        startQuestionPolling(appState.uploadedPDF.fileId);
-      } else {
-        // No questions cached yet, but they're being generated in background
-        console.log('⏳ No questions cached yet, but background generation is running...');
-        document.getElementById('question').innerHTML = `
-          <div class="text-center py-8">
-            <div class="text-lg font-semibold text-blue-600 mb-4">📚 Preparing questions...</div>
-            <div class="w-full bg-gray-200 rounded-full h-2 mb-4">
-              <div class="bg-blue-600 h-2 rounded-full animate-pulse" style="width: 60%;"></div>
-            </div>
-            <p class="text-gray-600">Questions are being extracted from your PDF in the background.</p>
-            <p class="text-sm text-gray-500 mt-2">This usually takes 15-20 seconds.</p>
-          </div>
-        `;
-
-        // Start polling for questions
-        startQuestionPolling(appState.uploadedPDF.fileId);
-      }
-    } catch (error) {
-      console.error('❌ Error fetching cached questions:', error);
-      alert('Error loading questions. Falling back to single questions.');
-      appState.totalQuestions = Infinity;
-      fetchQuestionsFromServer(1).then(questions => {
-        appState.questions = questions.map(q => ({ question: q.question }));
-        appState.sources = questions.map(q => q.source);
-        appState.chunkIndexes = questions.map(q => q.chunkIndex);
-        appState.pdfBasedFlags = questions.map(q => q.pdfBased);
-        appState.chunkTypes = questions.map(q => q.chunkType);
-        appState.totalChunksArray = questions.map(q => q.totalChunks);
-        appState.pdfFilenames = questions.map(q => q.pdfFilename);
-        loadQuestion();
-      });
-    }
-  } else {
-    // No PDF - use unlimited generic questions (old behavior)
-    appState.totalQuestions = Infinity;
-    fetchQuestionsFromServer(1).then(questions => {
-      appState.questions = questions.map(q => ({ question: q.question }));
-      appState.sources = questions.map(q => q.source);
-      appState.chunkIndexes = questions.map(q => q.chunkIndex);
-      appState.pdfBasedFlags = questions.map(q => q.pdfBased);
-      appState.chunkTypes = questions.map(q => q.chunkType);
-      appState.totalChunksArray = questions.map(q => q.totalChunks);
-      appState.pdfFilenames = questions.map(q => q.pdfFilename);
-      appState.difficulties = questions.map(q => 'generic');
-      loadQuestion();
+    // Store metadata
+    fetchedQuestions.forEach((q) => {
+      appState.sources.push(q.source || 'AI');
+      appState.chunkIndexes.push(q.chunkIndex || null);
+      appState.pdfBasedFlags.push(q.pdfBased || false);
+      appState.chunkTypes.push(q.chunkType || 'generic');
+      appState.totalChunksArray.push(q.totalChunks || null);
+      appState.pdfFilenames.push(q.pdfFilename || null);
+      appState.difficulties.push(q.difficulty || 'generic');
+      appState.difficultyEmojis.push(q.difficultyEmoji || '');
     });
+
+    // Start polling for background generation if mode is practice (need more questions later)
+    if (mode === 'practice' && appState.uploadedPDF) {
+      appState.isPollingForNewQuestions = true;
+      startQuestionPolling(appState.uploadedPDF.fileId);
+    }
+
+    loadQuestion();
+    startTimer();
+  } else {
+    alert('Failed to fetch questions. Please try again.');
+    backToMenu();
   }
 }
 
+// ========================================
+// FETCH QUESTIONS FROM SERVER
+// ========================================
 function getRandomQuestions(count) {
-  let shuffled = [...questionBank].sort(() => 0.5 - Math.random());
-  return shuffled.slice(0, count);
+  const questions = [
+    "Explain the pathophysiology of acute coronary syndrome.",
+    "Describe the mechanism of action of ACE inhibitors.",
+    "What are the diagnostic criteria for sepsis?",
+    "Discuss the management of diabetic ketoacidosis.",
+    "Explain the etiology and pathogenesis of ARDS.",
+    "What is the role of troponin in acute MI diagnosis?",
+    "Describe the classification and staging of heart failure.",
+    "What are the risk factors for venous thromboembolism?",
+    "Explain the pharmacology of beta-blockers.",
+    "Discuss the complications of hypertension.",
+  ];
+  return questions.slice(0, count);
+}
+
+async function fetchQuestionsFromServer(count) {
+  try {
+    // If using PDF and it's available, check if cached questions exist
+    if (appState.uploadedPDF && appState.usePDFQuestions) {
+      console.log('Checking for cached PDF questions...');
+
+      // Try to fetch from cache (questions generated in background)
+      try {
+        const response = await fetch('http://localhost:9999/pdf/cached-questions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileId: appState.uploadedPDF.fileId,
+            limit: count,
+            offset: 0,
+          }),
+          timeout: 3000  // 3 second timeout
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log('Cached PDF questions found:', data.questions.length);
+
+          if (data.questions && data.questions.length > 0) {
+            // Start polling for more questions to replace used ones
+            if (!appState.isPollingForNewQuestions && appState.mode === 'practice') {
+              appState.isPollingForNewQuestions = true;
+              startQuestionPolling(appState.uploadedPDF.fileId);
+            }
+            return data.questions;
+          }
+        }
+      } catch (cacheError) {
+        console.log('Cache fetch timed out or failed, falling back to AI:', cacheError.message);
+      }
+    }
+
+    // Fallback: Fetch generic AI questions immediately
+    console.log('Fetching generic AI questions...');
+    const questions = [];
+
+    for (let i = 0; i < count; i++) {
+      try {
+        const response = await fetch('http://localhost:9999/question', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: appState.sessionId }),
+          timeout: 10000  // 10 second timeout
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.question) {
+            questions.push(data);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching question', i, ':', error);
+      }
+    }
+
+    if (questions.length > 0) {
+      return questions;
+    }
+  } catch (error) {
+    console.error('Error fetching questions:', error);
+  }
+
+  // Final fallback: local questions
+  return getRandomQuestions(count).map((q) => ({
+    question: q,
+    source: 'AI',
+    pdfBased: false,
+  }));
 }
 
 // ========================================
 // QUESTION LOADING & DISPLAY
 // ========================================
-async function fetchQuestionsFromServer(count) {
-  try {
-    console.log(`🔄 Fetching ${count} questions from server...`);
-    const questionPromises = [];
-
-    for (let i = 0; i < count; i++) {
-      // Pass sessionId to enable PDF-based questions
-      const url = appState.sessionId
-        ? `/question?sessionId=${appState.sessionId}`
-        : '/question';
-
-      questionPromises.push(
-        fetch(url)
-          .then(res => {
-            if (!res.ok) {
-              console.error(`❌ Server error: ${res.status}`);
-              throw new Error(`HTTP error! status: ${res.status}`);
-            }
-            return res.json();
-          })
-          .then(data => {
-            // Check if data has question field
-            if (data.question) {
-              return data; // Returns {question, source, chunkIndex, pdfBased, timestamp}
-            } else if (data.error) {
-              console.error(`API Error: ${data.error}`);
-              throw new Error(data.error);
-            } else {
-              throw new Error('Invalid response format');
-            }
-          })
-          .catch(err => {
-            console.error(`❌ Failed to fetch question ${i + 1}:`, err.message);
-            // Fallback to local question
-            return { question: questionBank[0].question, source: 'local', chunkIndex: null, pdfBased: false };
-          })
-      );
-    }
-
-    const results = await Promise.all(questionPromises);
-    console.log(`✅ Fetched ${results.length} questions. Sources:`, results.map(q => q.source));
-    console.log(`📋 PDF-Based Questions:`, results.map(q => q.pdfBased ? '✅ PDF' : '❌ Generic'));
-    console.log(`🔖 Chunk Indexes:`, results.map(q => q.chunkIndex));
-    if (appState.uploadedPDF) {
-      console.log(`📄 Using PDF: ${appState.uploadedPDF.filename} (${appState.uploadedPDF.chunks} chunks)`);
-    }
-    return results;
-  } catch (error) {
-    console.error('Failed to fetch questions from server:', error);
-    // Fallback to local questions
-    return getRandomQuestions(count).map(q => ({ question: q.question, source: 'local' }));
-  }
-}
-
 function loadQuestion() {
-  const q = appState.questions[appState.currentQuestionIndex];
-  const source = appState.sources[appState.currentQuestionIndex] || 'local';
-  const pdfBased = appState.pdfBasedFlags[appState.currentQuestionIndex] || false;
-  const chunkIndex = appState.chunkIndexes[appState.currentQuestionIndex];
-  const totalChunks = appState.totalChunksArray[appState.currentQuestionIndex];
-  const chunkType = appState.chunkTypes[appState.currentQuestionIndex];
-  const pdfFilename = appState.pdfFilenames[appState.currentQuestionIndex];
-  const difficulty = appState.difficulties[appState.currentQuestionIndex];
-  const difficultyEmoji = appState.difficultyEmojis[appState.currentQuestionIndex];
-
-  // Display question with source badge
-  let sourceBadge, badgeClass;
-  if (pdfBased) {
-    sourceBadge = '📄 PDF-Based';
-    badgeClass = 'bg-purple-200 text-purple-800';
-  } else if (source === 'ai' || source === 'pdf-ai') {
-    sourceBadge = '🤖 AI';
-    badgeClass = 'bg-blue-200 text-blue-800';
-  } else {
-    sourceBadge = '📝 Local';
-    badgeClass = 'bg-gray-200 text-gray-800';
-  }
-
-  // Difficulty badge
-  let difficultyBadge = '';
-  if (difficulty && difficulty !== 'generic') {
-    const difficultyMap = {
-      'easy': { emoji: '🟢', label: 'Easy', color: 'bg-green-200 text-green-800' },
-      'medium': { emoji: '🟡', label: 'Medium', color: 'bg-yellow-200 text-yellow-800' },
-      'hard': { emoji: '🔴', label: 'Hard', color: 'bg-red-200 text-red-800' }
-    };
-    const diff = difficultyMap[difficulty];
-    if (diff) {
-      difficultyBadge = `<span class="text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${diff.color}">${diff.emoji} ${diff.label}</span>`;
+  // Check if we need more questions in practice mode
+  if (appState.mode === 'practice' && appState.currentQuestionIndex >= appState.questions.length - 1) {
+    // Generate next batch if polling active
+    if (!appState.isPollingForNewQuestions && appState.uploadedPDF) {
+      console.log('Starting background question polling...');
+      appState.isPollingForNewQuestions = true;
+      startQuestionPolling(appState.uploadedPDF.fileId);
     }
   }
 
-  // Build PDF metadata info (only for PDF-based questions)
-  let pdfMetadataHTML = '';
-  if (pdfBased && pdfFilename) {
-    const chunkTypeEmoji = {
-      'mechanism': '🔄',
-      'example': '📝',
-      'clinical': '🏥',
-      'general': '📚'
-    };
-    const emoji = chunkTypeEmoji[chunkType] || '📄';
-
-    pdfMetadataHTML = `
-      <div class="mt-3 pt-3 border-t border-purple-200 text-xs text-purple-700">
-        <div class="flex gap-2 flex-wrap">
-          <span class="bg-purple-100 px-2 py-1 rounded">📄 ${pdfFilename}</span>
-          <span class="bg-purple-100 px-2 py-1 rounded">🔢 Chunk ${chunkIndex + 1} of ${totalChunks}</span>
-          <span class="bg-purple-100 px-2 py-1 rounded">${emoji} ${chunkType}</span>
-          ${difficultyBadge ? `<span class="${difficultyBadge.match(/bg-\w+-\d+/)[0]} px-2 py-1 rounded">${difficultyBadge.match(/🟢|🟡|🔴/)[0]} ${difficulty}</span>` : ''}
-        </div>
-      </div>
-    `;
+  if (appState.currentQuestionIndex >= appState.questions.length) {
+    alert('No more questions available.');
+    return;
   }
 
-  document.getElementById('question').innerHTML = `
-    <div>
-      <div class="flex items-start justify-between gap-3">
-        <span>${q.question}</span>
-        <div class="flex gap-2">
-          <span class="text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${badgeClass}">${sourceBadge}</span>
-          ${difficulty && difficulty !== 'generic' ? `<span class="text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${difficulty === 'easy' ? 'bg-green-200 text-green-800' : difficulty === 'medium' ? 'bg-yellow-200 text-yellow-800' : 'bg-red-200 text-red-800'}">${difficulty === 'easy' ? '🟢' : difficulty === 'medium' ? '🟡' : '🔴'} ${difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}</span>` : ''}
-        </div>
-      </div>
-      ${pdfMetadataHTML}
-    </div>
-  `;
+  // ==== NEW: Reset perfect answer flag for new question ====
+  appState.isPerfectAnswerLoaded = false;
 
-  document.getElementById('questionCounter').innerText = `Q${appState.currentQuestionIndex + 1}${appState.totalAvailableInCache > 0 ? ` / ${appState.totalAvailableInCache}` : ''}`;
+  const q = appState.questions[appState.currentQuestionIndex];
 
-  // Update progress bar - hide for both practice and exam (unlimited questions)
-  document.getElementById('progressBar').style.width = '0%';
+  document.getElementById('question').textContent = q.question;
+  document.getElementById('answer').value = appState.answers[appState.currentQuestionIndex] || '';
+  document.getElementById('sourceBadge').textContent =
+    (appState.difficultyEmojis[appState.currentQuestionIndex] || '') +
+    ' ' +
+    (appState.pdfBasedFlags[appState.currentQuestionIndex] ? '📄 PDF-Based' : '🤖 AI');
 
-  // CLEAR answer input - always start fresh for new question
-  document.getElementById('answer').value = '';
   updateCharCount();
 
-  // Reset feedback
+  // Update progress
+  const progress = ((appState.currentQuestionIndex + 1) / appState.totalQuestions) * 100;
+  document.getElementById('progressBar').style.width = progress + '%';
+  document.getElementById('questionCounter').textContent = `Q${appState.currentQuestionIndex + 1}/${appState.mode === 'exam' ? appState.totalQuestions : '∞'}`;
+
+  // Reset submission state
+  appState.submitted = false;
   document.getElementById('feedback').classList.add('hidden');
-  document.getElementById('navigationBtns').classList.add('hidden');
-
-  // Reset buttons - show action buttons, hide next button
-  document.getElementById('actionButtons').classList.remove('hidden');
   document.getElementById('nextButtonWrapper').classList.add('hidden');
+  document.getElementById('actionButtons').classList.remove('hidden');
 
-  // Speak question
-  const speech = new SpeechSynthesisUtterance(q.question);
-  speech.rate = 0.9;
-  speechSynthesis.speak(speech);
-
-  startTimer();
-}
-
-function updateCharCount() {
-  const count = document.getElementById('answer').value.length;
-  document.getElementById('charCount').innerText = count + ' characters';
+  // Focus answer input
+  document.getElementById('answer').focus();
 }
 
 // ========================================
-// TIMER SYSTEM
+// CHARACTER COUNT
+// ========================================
+function updateCharCount() {
+  const charCount = document.getElementById('answer').value.length;
+  document.getElementById('charCount').textContent = charCount + ' characters';
+}
+
+// ========================================
+// TIMER MANAGEMENT
 // ========================================
 function startTimer() {
+  // Skip timer for practice mode
+  if (appState.mode === 'practice') {
+    // For practice mode, just show the timer bar as full and don't count down
+    document.getElementById('timerDisplay').textContent = '∞ Unlimited';
+    document.getElementById('timerBar').style.width = '100%';
+    return;
+  }
+
   if (appState.timerInterval) clearInterval(appState.timerInterval);
 
-  appState.timeLeft = 300;
-  updateTimerDisplay();
-
   appState.timerInterval = setInterval(() => {
-    appState.timeLeft--;
-    updateTimerDisplay();
+    appState.timeLeft -= 1;
 
+    // Update display
+    const minutes = Math.floor(appState.timeLeft / 60);
+    const seconds = appState.timeLeft % 60;
+    const displayText = appState.mode === 'exam'
+      ? `${minutes}m ${seconds}s`
+      : `${seconds}s`;
+    document.getElementById('timerDisplay').textContent = displayText;
+
+    // Update progress bar
+    const totalTime = appState.mode === 'exam' ? 300 : 30;
+    const percentage = (appState.timeLeft / totalTime) * 100;
+    document.getElementById('timerBar').style.width = percentage + '%';
+
+    // Auto-submit if time runs out
     if (appState.timeLeft <= 0) {
       clearInterval(appState.timerInterval);
       autoSubmitAnswer();
@@ -1009,248 +1110,489 @@ function startTimer() {
 }
 
 function updateTimerDisplay() {
-  document.getElementById('timerDisplay').innerText = appState.timeLeft + 's';
+  const minutes = Math.floor(appState.timeLeft / 60);
+  const seconds = appState.timeLeft % 60;
+  const displayText = appState.mode === 'exam'
+    ? `${minutes}m ${seconds}s`
+    : `${seconds}s`;
+  document.getElementById('timerDisplay').textContent = displayText;
+}
 
-  const percent = (appState.timeLeft / 300) * 100;
-  document.getElementById('timerBar').style.width = percent + '%';
+// ========================================
+// ==== NEW: PERFECT ANSWER GENERATION ====
+// ========================================
+async function getPerfectAnswer() {
+  const currentQ = appState.questions[appState.currentQuestionIndex];
+  const btn = document.getElementById('perfectAnswerBtn');
 
-  if (appState.timeLeft <= 60) {
-    document.getElementById('timerDisplay').classList.add('text-red-600');
-    document.getElementById('timerDisplay').classList.remove('text-blue-600');
-    document.getElementById('timerBar').classList.add('bg-red-600');
-    document.getElementById('timerBar').classList.remove('bg-blue-600');
-  } else {
-    document.getElementById('timerDisplay').classList.add('text-blue-600');
-    document.getElementById('timerDisplay').classList.remove('text-red-600');
-    document.getElementById('timerBar').classList.add('bg-blue-600');
-    document.getElementById('timerBar').classList.remove('bg-red-600');
+  if (!currentQ) {
+    alert('No question loaded');
+    return;
+  }
+
+  // Show loading state
+  btn.disabled = true;
+  btn.innerHTML = '⏳ Generating perfect answer...';
+  console.log('📝 Requesting perfect answer for:', currentQ.question.substring(0, 50));
+  console.log('🌐 Fetching from: http://localhost:9999/perfect-answer');
+
+  try {
+    console.log('🔄 Starting fetch call...');
+    const response = await fetch('http://localhost:9999/perfect-answer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: currentQ.question })
+    });
+
+    console.log('📡 Response received. Status:', response.status);
+    console.log('📡 Response headers:', response.headers.get('content-type'));
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Server error response:', response.status, errorText);
+      throw new Error(`Server HTTP ${response.status}: ${errorText.substring(0, 100)}`);
+    }
+
+    const data = await response.json();
+    console.log('📦 Full response data:', data);
+
+    // Check if we got an answer in the response
+    const perfectAnswer = data.answer || data.perfectAnswer || (typeof data === 'string' ? data : null);
+
+    console.log('✓ Answer extracted:', perfectAnswer ? perfectAnswer.substring(0, 50) + '...' : 'NONE FOUND');
+
+    if (perfectAnswer && perfectAnswer.trim()) {
+      // Smooth update of textarea
+      const answerBox = document.getElementById('answer');
+      answerBox.value = perfectAnswer;
+      answerBox.focus();
+      updateCharCount();
+
+      // ==== NEW: Mark this as perfect answer for auto 10/10 ====
+      appState.isPerfectAnswerLoaded = true;
+
+      // Show success message
+      btn.innerHTML = '✅ Perfect answer inserted!';
+      console.log('✅ Perfect answer loaded successfully');
+
+      setTimeout(() => {
+        btn.innerHTML = '💡 Show Perfect Answer';
+        btn.disabled = false;
+      }, 2000);
+    } else {
+      console.warn('⚠️ No answer in response:', data);
+      btn.innerHTML = '⚠️ No answer received';
+      alert('Server returned no answer. Check browser console for details.');
+      setTimeout(() => {
+        btn.innerHTML = '💡 Show Perfect Answer';
+        btn.disabled = false;
+      }, 2000);
+    }
+  } catch (error) {
+    console.error('❌ Error fetching perfect answer:', error);
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    btn.innerHTML = '❌ Connection error';
+
+    // Show detailed error
+    alert(`Error: ${error.message}\n\nCheck:\n1. Server running on port 8888?\n2. Open browser console (F12) for logs`);
+
+    // Provide helpful feedback
+    setTimeout(() => {
+      btn.innerHTML = '💡 Show Perfect Answer';
+      btn.disabled = false;
+    }, 1000);
   }
 }
 
 // ========================================
-// ANSWER SUBMISSION & SCORING
+// ANSWER SUBMISSION
 // ========================================
 async function submitCurrentAnswer() {
-  if (appState.submitted) return;
+  const answer = document.getElementById('answer').value.trim();
 
-  clearInterval(appState.timerInterval);
-  appState.submitted = true;
-
-  const answer = document.getElementById('answer').value;
-
-  if (!answer.trim()) {
-    alert('Please write an answer before submitting');
-    appState.submitted = false;
+  if (!answer) {
+    alert('Please enter an answer before submitting.');
     return;
   }
 
-  const questionIndex = appState.currentQuestionIndex; // CAPTURE INDEX
-  appState.answers[questionIndex] = answer;
+  appState.submitted = true;
+  appState.answers[appState.currentQuestionIndex] = answer;
 
+  const currentQ = appState.questions[appState.currentQuestionIndex];
+
+  // ==== NEW: Check if perfect answer was loaded ====
+  if (appState.isPerfectAnswerLoaded) {
+    console.log('🎯 Perfect answer detected - Auto scoring 10/10!');
+
+    const score = 10;
+    appState.scores[appState.currentQuestionIndex] = score;
+    appState.totalScore += score;
+
+    // Save attempt to DB
+    await saveAttempt(
+      appState.currentQuestionIndex,
+      currentQ.question,
+      answer,
+      score,
+      appState.sources[appState.currentQuestionIndex],
+      appState.chunkIndexes[appState.currentQuestionIndex],
+      appState.pdfBasedFlags[appState.currentQuestionIndex],
+      appState.difficulties[appState.currentQuestionIndex]
+    );
+
+    // Display perfect score feedback
+    const feedbackDiv = document.getElementById('feedback');
+    feedbackDiv.innerHTML = `
+      <div class="space-y-4">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-3">
+            <span class="text-3xl">🏆</span>
+            <div>
+              <p class="font-semibold text-white text-lg">Perfect Answer!</p>
+              <p class="text-sm text-gray-400">Score: <span class="text-yellow-400 font-bold">10/10</span></p>
+            </div>
+          </div>
+        </div>
+        <div class="pl-12 text-sm text-gray-300">
+          Excellent work! This is an ideal exam-ready response.
+        </div>
+      </div>
+    `;
+    feedbackDiv.classList.remove('hidden');
+
+    // Reset flag for next question
+    appState.isPerfectAnswerLoaded = false;
+
+    // Show next button
+    document.getElementById('actionButtons').classList.add('hidden');
+    document.getElementById('nextButtonWrapper').classList.remove('hidden');
+
+    // Reset timer for next question
+    if (appState.mode === 'practice') {
+      appState.timeLeft = 30;
+    }
+
+    console.log('✅ Perfect answer submitted with 10/10 score');
+    return;
+  }
+
+  // ORIGINAL: Use AI evaluation endpoint
   try {
-    const response = await fetch('/evaluate', {
+    const evalResponse = await fetch('http://localhost:9999/evaluate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        question: appState.questions[questionIndex].question,
+        question: currentQ.question,
         answer: answer
       })
     });
 
-    if (!response.ok) throw new Error('Submission failed');
+    const evaluation = await evalResponse.json();
+    const score = evaluation.score || 0;
+    const feedback = evaluation.feedback || 'Unable to evaluate';
 
-    const data = await response.json();
+    appState.scores[appState.currentQuestionIndex] = score;
+    appState.totalScore += score;
 
-    // FIX: Only count score once per question
-    if (appState.scores[questionIndex] === undefined) {
-      appState.totalScore += data.score;
-      appState.scores[questionIndex] = data.score;
+    // Save attempt to DB
+    await saveAttempt(
+      appState.currentQuestionIndex,
+      currentQ.question,
+      answer,
+      score,
+      appState.sources[appState.currentQuestionIndex],
+      appState.chunkIndexes[appState.currentQuestionIndex],
+      appState.pdfBasedFlags[appState.currentQuestionIndex],
+      appState.difficulties[appState.currentQuestionIndex]
+    );
 
-      // Save progress to database
-      saveAttempt(
-        questionIndex,
-        appState.questions[questionIndex].question,
-        answer,
-        data.score,
-        appState.sources[questionIndex],
-        appState.chunkIndexes[questionIndex],
-        appState.pdfBasedFlags[questionIndex],
-        appState.difficulties[questionIndex]
-      );
-    }
+    // Display structured feedback from AI
+    const feedbackDiv = document.getElementById('feedback');
+    feedbackDiv.innerHTML = `
+      <div class="space-y-4">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-3">
+            <span class="text-3xl">${score >= 8 ? '🎓' : score >= 6 ? '📝' : '💡'}</span>
+            <div>
+              <p class="font-semibold text-white text-lg">AI Professor Evaluation</p>
+              <p class="text-sm text-gray-400">Score: <span class="text-yellow-400 font-bold">${score}/10</span></p>
+            </div>
+          </div>
+        </div>
+        <div class="pl-12 text-sm text-gray-300 whitespace-pre-line leading-relaxed">
+          ${feedback}
+        </div>
+      </div>
+    `;
+    feedbackDiv.classList.remove('hidden');
 
-    // Display feedback
-    const feedbackEl = document.getElementById('feedback');
-    feedbackEl.innerHTML = `<p class="font-semibold text-gray-800">${data.feedback}</p>
-      <p class="text-sm text-gray-600 mt-2">Score: <span class="font-bold text-green-600">${data.score}/10</span></p>`;
-    feedbackEl.classList.remove('hidden');
-    feedbackEl.classList.add('bg-green-50', 'border-l-4', 'border-green-600');
-
-    // Hide submit/skip/menu buttons and show next button
+    // Show next button
     document.getElementById('actionButtons').classList.add('hidden');
     document.getElementById('nextButtonWrapper').classList.remove('hidden');
 
+    // Reset timer for next question
+    if (appState.mode === 'practice') {
+      appState.timeLeft = 30;
+    }
+
+    console.log('✅ Answer evaluated:', { score, feedback });
   } catch (error) {
-    console.error('Submit error:', error);
-    const feedbackEl = document.getElementById('feedback');
-    feedbackEl.innerHTML = '<p class="text-red-600 font-semibold">❌ Error submitting answer. Please try again.</p>';
-    feedbackEl.classList.remove('hidden');
-    appState.submitted = false; // Allow retry
+    console.error('❌ Evaluation error:', error);
+
+    // Fallback to simple feedback if AI fails
+    const score = answer.length > 20 ? 80 : 60;
+    appState.scores[appState.currentQuestionIndex] = score;
+    appState.totalScore += score;
+
+    await saveAttempt(
+      appState.currentQuestionIndex,
+      currentQ.question,
+      answer,
+      score,
+      appState.sources[appState.currentQuestionIndex],
+      appState.chunkIndexes[appState.currentQuestionIndex],
+      appState.pdfBasedFlags[appState.currentQuestionIndex],
+      appState.difficulties[appState.currentQuestionIndex]
+    );
+
+    const feedbackDiv = document.getElementById('feedback');
+    feedbackDiv.innerHTML = `
+      <div class="flex items-start gap-4">
+        <div class="text-3xl">💡</div>
+        <div>
+          <p class="font-semibold text-white mb-2">Answer Submitted</p>
+          <p class="text-gray-300">Your answer has been recorded.</p>
+        </div>
+      </div>
+    `;
+    feedbackDiv.classList.remove('hidden');
+
+    document.getElementById('actionButtons').classList.add('hidden');
+    document.getElementById('nextButtonWrapper').classList.remove('hidden');
   }
 }
 
 function autoSubmitAnswer() {
-  if (!appState.submitted) {
-    submitCurrentAnswer();
-  }
+  if (appState.submitted || appState.currentQuestionIndex >= appState.questions.length) return;
+
+  const answer = document.getElementById('answer').value.trim() || '[No Answer]';
+  appState.submitted = true;
+  appState.answers[appState.currentQuestionIndex] = answer;
+
+  const score = 0;
+  appState.scores[appState.currentQuestionIndex] = score;
+  appState.totalScore += score;
+
+  const currentQ = appState.questions[appState.currentQuestionIndex];
+  saveAttempt(
+    appState.currentQuestionIndex,
+    currentQ.question,
+    answer,
+    score,
+    appState.sources[appState.currentQuestionIndex],
+    appState.chunkIndexes[appState.currentQuestionIndex],
+    appState.pdfBasedFlags[appState.currentQuestionIndex],
+    appState.difficulties[appState.currentQuestionIndex]
+  );
+
+  const feedbackDiv = document.getElementById('feedback');
+  feedbackDiv.innerHTML = `
+    <div class="flex items-start gap-4">
+      <div class="text-3xl">⏰</div>
+      <div>
+        <p class="font-semibold text-white mb-2">Time's Up!</p>
+        <p class="text-gray-300">Your answer was auto-submitted. Move to the next question.</p>
+      </div>
+    </div>
+  `;
+  feedbackDiv.classList.remove('hidden');
+
+  document.getElementById('actionButtons').classList.add('hidden');
+  document.getElementById('nextButtonWrapper').classList.remove('hidden');
 }
 
 // ========================================
-// FOLLOW-UP QUESTIONS (Disabled)
-// ========================================
-// Follow-up questions are part of each question object.
-// Student can request them after initial submission if available.
-// Currently disabled - can be re-enabled with backend support.
-
-// ========================================
-// NAVIGATION
+// QUESTION NAVIGATION
 // ========================================
 function nextQuestion() {
-  // Always fetch a new question for both practice and exam modes (unlimited)
-  appState.currentQuestionIndex++;
-  appState.submitted = false;
-  document.getElementById('question').innerHTML = '<div class="text-center text-gray-500">📚 Loading next question...</div>';
-  document.getElementById('answer').value = '';
+  if (appState.mode === 'exam' && appState.currentQuestionIndex >= appState.totalQuestions - 1) {
+    showResults();
+    return;
+  }
 
-  // Hide buttons and show loading state
-  document.getElementById('actionButtons').classList.add('hidden');
-  document.getElementById('nextButtonWrapper').classList.add('hidden');
+  appState.currentQuestionIndex += 1;
 
-  fetchQuestionsFromServer(1).then(questions => {
-    appState.questions.push({ question: questions[0].question });
-    appState.sources.push(questions[0].source);
-    appState.chunkIndexes.push(questions[0].chunkIndex);
-    appState.pdfBasedFlags.push(questions[0].pdfBased);
-    appState.chunkTypes.push(questions[0].chunkType);
-    appState.totalChunksArray.push(questions[0].totalChunks);
-    appState.pdfFilenames.push(questions[0].pdfFilename);
-    loadQuestion();
-  });
+  if (appState.currentQuestionIndex >= appState.questions.length) {
+    if (appState.mode === 'practice') {
+      // Fetch more questions in practice mode
+      if (!appState.isPollingForNewQuestions && appState.uploadedPDF) {
+        appState.isPollingForNewQuestions = true;
+        startQuestionPolling(appState.uploadedPDF.fileId);
+      }
+      alert('Loading next question...');
+      return;
+    } else {
+      showResults();
+      return;
+    }
+  }
+
+  loadQuestion();
+  startTimer();
 }
 
 function previousQuestion() {
-  if (appState.currentQuestionIndex > 0) {
-    appState.currentQuestionIndex--;
-    appState.submitted = false; // RESET for going back
-    loadQuestion();
-  }
+  if (appState.currentQuestionIndex <= 0) return;
+
+  appState.currentQuestionIndex -= 1;
+  loadQuestion();
+  startTimer();
 }
 
 function skipQuestion() {
-  // Skip to next question without submitting - always fetch new question (unlimited)
-  appState.currentQuestionIndex++;
-  appState.submitted = false;
-  appState.answers[appState.currentQuestionIndex - 1] = '(Skipped)';
-  document.getElementById('question').innerHTML = '<div class="text-center text-gray-500">📚 Loading next question...</div>';
-  document.getElementById('answer').value = '';
+  appState.answers[appState.currentQuestionIndex] = '[SKIPPED]';
+  appState.scores[appState.currentQuestionIndex] = 0;
 
-  // Hide buttons and show loading state
-  document.getElementById('actionButtons').classList.add('hidden');
-  document.getElementById('nextButtonWrapper').classList.add('hidden');
+  if (appState.mode === 'exam' && appState.currentQuestionIndex >= appState.totalQuestions - 1) {
+    showResults();
+    return;
+  }
 
-  fetchQuestionsFromServer(1).then(questions => {
-    appState.questions.push({ question: questions[0].question });
-    appState.sources.push(questions[0].source);
-    appState.chunkIndexes.push(questions[0].chunkIndex);
-    appState.pdfBasedFlags.push(questions[0].pdfBased);
-    appState.chunkTypes.push(questions[0].chunkType);
-    appState.totalChunksArray.push(questions[0].totalChunks);
-    appState.pdfFilenames.push(questions[0].pdfFilename);
-    loadQuestion();
-  });
-}
+  appState.currentQuestionIndex += 1;
 
-function backToMenu() {
-  // Clear state and return to mode selection
-  clearInterval(appState.timerInterval);
-  document.getElementById('modeScreen').classList.remove('hidden');
-  document.getElementById('examScreen').classList.add('hidden');
-  document.getElementById('resultsScreen').classList.add('hidden');
+  if (appState.currentQuestionIndex >= appState.questions.length) {
+    alert('No more questions available.');
+    return;
+  }
 
-  // Reset app state
-  appState.mode = null;
-  appState.currentQuestionIndex = 0;
-  appState.answers = [];
-  appState.scores = [];
-  appState.totalScore = 0;
-  appState.submitted = false;
+  loadQuestion();
+  startTimer();
 }
 
 // ========================================
-// RESULTS
+// RESULTS DISPLAY
 // ========================================
 function showResults() {
   clearInterval(appState.timerInterval);
 
+  // ===== NEW: Push history state for results page =====
+  pushHistoryState('results');
+  historyState.currentPage = 'results';
+
   document.getElementById('examScreen').classList.add('hidden');
   document.getElementById('resultsScreen').classList.remove('hidden');
 
-  // RECALCULATE totalScore from individual scores to prevent inflation
-  let recalculatedScore = 0;
-  appState.scores.forEach(score => {
-    recalculatedScore += (score || 0);
-  });
+  const totalAttempted = appState.answers.filter((a) => a && a !== '[SKIPPED]').length;
+  const accuracy = totalAttempted > 0 ? (appState.totalScore / (totalAttempted * 100)) * 100 : 0;
 
-  const finalScore = Math.round((recalculatedScore / (appState.totalQuestions * 10)) * 100);
-  document.getElementById('finalScore').innerText = Math.min(finalScore, 100) + '/100';
+  document.getElementById('finalScore').textContent = Math.round(accuracy) + '%';
 
-  let msg = '';
-  if (finalScore >= 80) msg = '🎉 Excellent! You have a strong grasp of the material.';
-  else if (finalScore >= 60) msg = '👍 Good! Keep practicing to master these concepts.';
-  else if (finalScore >= 40) msg = '📚 Fair. Review the material and practice more.';
-  else msg = '💪 Keep studying! Focus on weaker areas.';
+  let performanceMsg = '';
+  if (accuracy >= 80) {
+    performanceMsg = '🎉 Excellent work! You have a strong grasp of the material.';
+  } else if (accuracy >= 60) {
+    performanceMsg = '👏 Good effort! Review the weaker areas for improvement.';
+  } else if (accuracy >= 40) {
+    performanceMsg = '💪 Keep practicing! Focus on conceptual understanding.';
+  } else {
+    performanceMsg = '📚 Review the fundamentals and try again.';
+  }
 
-  document.getElementById('performanceMsg').innerText = msg;
+  document.getElementById('performanceMsg').textContent = performanceMsg;
 
-  // Show answers review
-  let reviewHTML = '';
-  appState.questions.forEach((q, idx) => {
-    reviewHTML += `
-      <div class="p-3 bg-gray-50 rounded-lg border-l-4 border-blue-600">
-        <p class="text-sm font-semibold text-gray-700">Q${idx + 1}: ${q.question.substring(0, 60)}...</p>
-        <p class="text-xs text-gray-600 mt-1"><strong>Your Answer:</strong> ${appState.answers[idx] || '(Not answered)'}</p>
-        <p class="text-xs text-green-600 mt-1"><strong>Score:</strong> ${appState.scores[idx] || 0}/10</p>
+  // Generate answer review
+  const reviewDiv = document.getElementById('answersReview');
+  reviewDiv.innerHTML = '';
+
+  appState.questions.forEach((q, i) => {
+    const answer = appState.answers[i];
+    const score = appState.scores[i];
+    const source = appState.sources[i];
+    const difficulty = appState.difficulties[i] || 'generic';
+    const diffEmoji = appState.difficultyEmojis[i] || '';
+
+    const reviewItem = document.createElement('div');
+    reviewItem.className = 'p-4 rounded-xl glass-effect border border-white/10';
+    reviewItem.innerHTML = `
+      <div class="flex justify-between items-start mb-2">
+        <div>
+          <p class="font-semibold text-white text-sm">Q${i + 1}: ${q.question.substring(0, 100)}...</p>
+          <div class="flex gap-2 mt-2">
+            <span class="text-xs px-2 py-1 rounded-lg bg-white/10 text-gray-300">${diffEmoji} ${difficulty}</span>
+            <span class="text-xs px-2 py-1 rounded-lg bg-white/10 text-gray-300">${source}</span>
+          </div>
+        </div>
+        <span class="text-lg font-bold ${score >= 80 ? 'text-green-400' : score > 0 ? 'text-yellow-400' : 'text-red-400'}">${score}%</span>
       </div>
+      <p class="text-sm text-gray-400">Your answer: ${answer || '[No answer]'}</p>
     `;
+    reviewDiv.appendChild(reviewItem);
   });
-  document.getElementById('answersReview').innerHTML = reviewHTML;
 }
 
 function restartExam() {
+  appState.currentQuestionIndex = 0;
+  appState.questions = [];
+  appState.answers = [];
+  appState.scores = [];
+  appState.totalScore = 0;
+
+  document.getElementById('resultsScreen').classList.add('hidden');
+  document.getElementById('examScreen').classList.remove('hidden');
+
   startMode(appState.mode);
 }
 
+// ========================================
+// NAVIGATION
+// ========================================
+function backToMenu() {
+  // ===== NEW: Use proper history navigation =====
+  window.history.back();
+}
+
 function backToMode() {
-  document.getElementById('modeScreen').classList.remove('hidden');
-  document.getElementById('examScreen').classList.add('hidden');
-  document.getElementById('resultsScreen').classList.add('hidden');
+  // ===== NEW: Use proper history navigation =====
+  window.history.back();
+  backToMenu();
 }
 
 // ========================================
-// FILE UPLOAD (Disabled)
+// NEW: Navigation Helper
 // ========================================
-// File upload functionality will be re-enabled with
-// proper PDF parsing and API integration in future updates.
-
-// Track character count
-document.addEventListener('DOMContentLoaded', () => {
-  const answerEl = document.getElementById('answer');
-  if (answerEl) {
-    answerEl.addEventListener('input', updateCharCount);
+function scrollToSection(sectionId) {
+  const element = document.getElementById(sectionId);
+  if (element) {
+    element.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+}
 
-  // Initialize speech recognition
-  initSpeechRecognition();
+// Context-aware navigation - uses scroll on main screen, back button in exam mode
+function navToSection(sectionId) {
+  // If we're in exam/practice mode, go back to main screen first
+  if (document.getElementById('examScreen').classList.contains('hidden') === false) {
+    backToMenu();
+    // After going back, we'll be on main screen, then scroll to section
+    setTimeout(() => {
+      scrollToSection(sectionId);
+    }, 300);
+  } else {
+    // We're already on main screen, just scroll
+    scrollToSection(sectionId);
+  }
+}
+
+// Event listener for PDF question toggle
+document.addEventListener('DOMContentLoaded', () => {
+  const pdfToggle = document.getElementById('usePDFQuestions');
+  if (pdfToggle) {
+    pdfToggle.addEventListener('change', (e) => {
+      appState.usePDFQuestions = e.target.checked;
+      console.log('PDF questions preference updated:', appState.usePDFQuestions);
+    });
+  }
 });
 
 </script>

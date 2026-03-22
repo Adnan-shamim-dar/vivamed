@@ -235,6 +235,153 @@ function evaluateAnswer(question, answer) {
   return { score: Number(score), feedback: String(feedback) };
 }
 
+// ==== NEW: AI-POWERED PROFESSOR EVALUATION ====
+async function evaluateAnswerWithAI(question, answer) {
+  if (!OPENROUTER_API_KEY) {
+    console.warn('⚠️ No API key, using local evaluation');
+    return evaluateAnswer(question, answer);
+  }
+
+  try {
+    console.log('🎓 Calling AI Professor for strict evaluation...');
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'gpt-oss-120b',
+        messages: [
+          {
+            role: 'user',
+            content: `You are a strict medical viva examiner. Evaluate this student's answer professionally and concisely.
+
+QUESTION: ${question}
+
+STUDENT'S ANSWER: ${answer}
+
+Provide EXACTLY this format (be concise and direct):
+
+Score: X/10
+
+Strengths:
+- (1-2 key strengths)
+
+Weaknesses:
+- (1-2 key gaps)
+
+Missing Concepts:
+- (1-2 important concepts not mentioned)
+
+Follow-up Question:
+(A challenging follow-up question to test deeper understanding)`
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 350
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      console.error(`❌ AI Evaluation Error ${response.status}:`, err.substring(0, 200));
+      return evaluateAnswer(question, answer);
+    }
+
+    const data = await response.json();
+    if (!data.choices?.[0]?.message?.content) {
+      console.warn('⚠️ Invalid AI response, using local evaluation');
+      return evaluateAnswer(question, answer);
+    }
+
+    const aiEvaluation = data.choices[0].message.content.trim();
+    console.log('✅ AI Evaluation Complete');
+
+    // Extract score from AI response
+    const scoreMatch = aiEvaluation.match(/Score:\s*(\d+)/);
+    const score = scoreMatch ? Math.min(Math.max(parseInt(scoreMatch[1]), 0), 10) : 5;
+
+    return {
+      score: score,
+      feedback: aiEvaluation,
+      isAIPowered: true
+    };
+  } catch (error) {
+    console.error('❌ AI Evaluation failed:', error.message);
+    return evaluateAnswer(question, answer);
+  }
+}
+
+// ==== NEW: PERFECT ANSWER GENERATION ====
+async function generatePerfectAnswer(question) {
+  if (!OPENROUTER_API_KEY) {
+    throw new Error("OPENROUTER_API_KEY not set");
+  }
+
+  try {
+    console.log('✏️ [PERFECT ANSWER] Generating answer for:', question.substring(0, 60) + '...');
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'gpt-oss-120b',
+        messages: [
+          {
+            role: 'user',
+            content: `You are a senior medical educator. Provide a PERFECT, CONCISE, exam-ready answer to this medical viva question.
+
+QUESTION: ${question}
+
+Requirements:
+- Be comprehensive but focused (2-4 sentences)
+- Include key mechanisms and clinical relevance
+- Use proper medical terminology
+- Be suitable for a high-scoring exam response
+
+ANSWER:`
+          }
+        ],
+        temperature: 0.5,
+        max_tokens: 300
+      })
+    });
+
+    console.log('📡 [PERFECT ANSWER] API Response Status:', response.status);
+
+    if (!response.ok) {
+      const err = await response.text();
+      console.error(`❌ [PERFECT ANSWER] API Error ${response.status}:`, err.substring(0, 300));
+      throw new Error(`API error ${response.status}: ${err.substring(0, 100)}`);
+    }
+
+    const data = await response.json();
+    console.log('📦 [PERFECT ANSWER] Response keys:', Object.keys(data));
+
+    if (!data.choices?.[0]?.message?.content) {
+      console.error('❌ [PERFECT ANSWER] Invalid response format:', JSON.stringify(data).substring(0, 300));
+      throw new Error('Invalid response format - no content in message');
+    }
+
+    const perfectAnswer = data.choices[0].message.content.trim();
+
+    if (!perfectAnswer) {
+      throw new Error('Empty answer received from API');
+    }
+
+    console.log('✅ [PERFECT ANSWER] Generated successfully:', perfectAnswer.substring(0, 80) + '...');
+    return perfectAnswer;
+
+  } catch (error) {
+    console.error('❌ [PERFECT ANSWER] Generation Failed:', error.message);
+    throw error;
+  }
+}
+
 // ========================================
 // AI INTEGRATION
 // ========================================
@@ -1075,6 +1222,59 @@ app.get('/pdf/cached-questions/:fileId', (req, res) => {
   });
 });
 
+// POST: Fetch cached pre-generated questions (from frontend with JSON body)
+app.post('/pdf/cached-questions', (req, res) => {
+  const { fileId, limit = 18, offset = 0 } = req.body;
+
+  if (!fileId) {
+    return res.status(400).json({ success: false, error: 'fileId required' });
+  }
+
+  console.log(`📦 Fetching cached questions for ${fileId}...`);
+
+  // Get total count and paginated questions
+  db.get('SELECT COUNT(*) as total FROM cached_questions WHERE fileId = ?', [fileId], (err, countRow) => {
+    if (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+
+    const total = countRow?.total || 0;
+    console.log(`   Found ${total} cached questions`);
+
+    // If no cached questions yet, return empty array with status
+    if (total === 0) {
+      return res.json({
+        success: true,
+        questions: [],
+        total: 0,
+        offset,
+        limit,
+        hasMore: false
+      });
+    }
+
+    db.all(
+      `SELECT question, difficulty, difficultyEmoji, chunkIndex, totalChunks, chunkType, pdfFilename, pdfBased, source
+       FROM cached_questions WHERE fileId = ? ORDER BY generatedAt ASC LIMIT ? OFFSET ?`,
+      [fileId, limit, offset],
+      (err, questions) => {
+        if (err) {
+          return res.status(500).json({ success: false, error: err.message });
+        }
+
+        res.json({
+          success: true,
+          questions: questions || [],
+          total,
+          offset,
+          limit,
+          hasMore: offset + limit < total
+        });
+      }
+    );
+  });
+});
+
 
 // POST: Generate multiple questions with difficulty levels from PDF
 app.post('/pdf/generate-questions', async (req, res) => {
@@ -1167,21 +1367,24 @@ app.get("/question", async (req, res) => {
 });
 
 // POST: Evaluate answer
-app.post("/evaluate", (req, res) => {
+app.post("/evaluate", async (req, res) => {
   const { question, answer } = req.body;
 
   if (!answer || !answer.trim()) {
     return res.json({
       score: 0,
-      feedback: "No answer provided"
+      feedback: "No answer provided",
+      isAIPowered: false
     });
   }
 
   try {
-    const evaluation = evaluateAnswer(question, answer);
+    // UPDATED: Use AI-powered evaluation instead of local
+    const evaluation = await evaluateAnswerWithAI(question, answer);
     const response = {
       score: evaluation.score || 0,
-      feedback: evaluation.feedback || "Unable to evaluate"
+      feedback: evaluation.feedback || "Unable to evaluate",
+      isAIPowered: evaluation.isAIPowered || false
     };
     console.log('[EVALUATE RESPONSE]', response);
     res.json(response);
@@ -1189,7 +1392,47 @@ app.post("/evaluate", (req, res) => {
     console.error('❌ Evaluation failed:', error.message);
     res.status(500).json({
       score: 0,
-      feedback: "Error evaluating answer"
+      feedback: "Error evaluating answer",
+      isAIPowered: false
+    });
+  }
+});
+
+// ==== NEW: PERFECT ANSWER ENDPOINT ====
+app.post("/perfect-answer", async (req, res) => {
+  const { question } = req.body;
+
+  console.log('📨 [PERFECT ANSWER ENDPOINT] Received request');
+
+  if (!question || !question.trim()) {
+    console.warn('⚠️ [PERFECT ANSWER ENDPOINT] No question provided');
+    return res.status(400).json({
+      success: false,
+      error: "No question provided",
+      answer: ""
+    });
+  }
+
+  console.log('✏️ [PERFECT ANSWER ENDPOINT] Question:', question.substring(0, 60) + '...');
+
+  try {
+    const perfectAnswer = await generatePerfectAnswer(question);
+
+    const response = {
+      success: true,
+      answer: perfectAnswer
+    };
+
+    console.log('✅ [PERFECT ANSWER ENDPOINT] Sending response:', perfectAnswer.substring(0, 80) + '...');
+    res.json(response);
+
+  } catch (error) {
+    console.error('❌ [PERFECT ANSWER ENDPOINT] Generation failed:', error.message);
+    res.status(500).json({
+      success: false,
+      error: "Failed to generate perfect answer",
+      answer: "Unable to generate answer at this moment. Make sure the API key is set and you have available credits.",
+      details: error.message
     });
   }
 });
@@ -1343,7 +1586,7 @@ app.get("/progress/stats/:sessionId", (req, res) => {
 app.use(express.static(__dirname))
 
 // Start server
-const PORT = 8888;
+const PORT = 9999;
 app.listen(PORT, () => {
   console.log("\n🏥 Medical Viva Trainer");
   console.log("📝 Questions available:", questionBank.length);
