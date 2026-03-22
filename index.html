@@ -231,6 +231,30 @@
           </button>
         </div>
 
+        <!-- MCQ Mode Card (NEW) -->
+        <div id="nav-mcq" class="group card-hover">
+          <button
+            onclick="startMode('mcq')"
+            class="w-full h-full p-8 rounded-2xl glass-effect border border-white/10 hover:border-green-400/50 relative overflow-hidden transition-smooth">
+
+            <!-- Gradient overlay on hover -->
+            <div class="absolute inset-0 bg-gradient-to-br from-green-500/20 to-cyan-500/20 opacity-0 group-hover:opacity-100 transition-smooth"></div>
+
+            <div class="relative z-10 text-left">
+              <div class="text-5xl mb-4">📋</div>
+              <h3 class="text-2xl font-bold mb-2 text-white">MCQ Mode</h3>
+              <p class="text-gray-400 mb-6">Practice with multiple-choice questions. Unlimited time.</p>
+
+              <div class="flex items-center gap-2 text-green-400 font-semibold">
+                <span>Start MCQ</span>
+                <svg class="w-5 h-5 group-hover:translate-x-2 transition-smooth" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"></path>
+                </svg>
+              </div>
+            </div>
+          </button>
+        </div>
+
       </div>
 
       <!-- SECTION B: PDF UPLOAD (GLASSMORPHISM) -->
@@ -551,7 +575,7 @@
 // STATE MANAGEMENT
 // ========================================
 let appState = {
-  mode: null, // 'practice' or 'exam'
+  mode: null, // 'practice', 'exam', or 'mcq'
   currentQuestionIndex: 0,
   totalQuestions: 10,
   questions: [],
@@ -570,7 +594,7 @@ let appState = {
   progressSaved: 0,
   uploadedPDF: null,
   usePDFQuestions: true,
-  pdfSubject: null,  // NEW: Subject of the uploaded PDF
+  pdfSubject: null,  // Subject of the uploaded PDF
   chunkIndexes: [],
   pdfBasedFlags: [],
   chunkTypes: [],
@@ -578,17 +602,37 @@ let appState = {
   pdfFilenames: [],
   difficulties: [],
   difficultyEmojis: [],
-  // NEW: Background generation and streaming fields
+  // Background generation and streaming fields
   cachedQuestionsOffset: 0,      // Track how many cached questions we've fetched
   totalAvailableInCache: 0,      // Total questions available in cache
   isPollingForNewQuestions: false, // Polling active flag
   questionPollingInterval: null, // Store interval ID
   generationProgress: 0,         // Track extraction progress
-  // ==== NEW: Perfect answer tracking ====
+  // Perfect answer tracking
   isPerfectAnswerLoaded: false,   // Flag to give 10/10 for perfect answers
-  // ==== NEW: Auto-generation tracking ====
+  // Auto-generation tracking
   isAutoGenerating: false,        // Flag to prevent multiple auto-gen requests
-  autoGenTriggered: false         // Track if auto-gen was triggered for current session
+  autoGenTriggered: false,        // Track if auto-gen was triggered for current session
+
+  // ========== NEW: MCQ MODE FIELDS ==========
+  mcqMode: false,                    // Currently in MCQ mode?
+  mcqQuestion: null,                 // Current MCQ question object
+  selectedOption: null,              // User's selected option (A/B/C/D)
+  mcqCorrectOption: null,            // Correct answer (A/B/C/D)
+  mcqExplanation: "",                // AI explanation of correct answer
+  mcqSubmitted: false,               // Has user submitted this question?
+  mcqQuestionNumber: 0,              // Question 1 of 18
+  mcqTotalQuestions: 18,             // Total questions in session (unlimited like practice)
+  mcqScore: 0,                       // Running score
+
+  // ========== NEW: MODE-SPECIFIC PDF UPLOADS ==========
+  examUploadedPDF: null,             // PDF uploaded in Exam mode (null or {fileId, filename, chunks})
+  practiceUploadedPDF: null,         // PDF uploaded in Practice mode
+  mcqUploadedPDF: null,              // PDF uploaded in MCQ mode
+  currentModeUploadedPDF: null,      // Currently active mode's PDF
+
+  // ========== NEW: LIBRARY FILTERING ==========
+  libraryQuestionTypeFilter: 'all'   // 'all', 'long-form', or 'mcq'
 };
 
 // ========================================

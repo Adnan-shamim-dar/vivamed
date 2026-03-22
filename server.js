@@ -142,7 +142,46 @@ db.serialize(() => {
     }
   });
 
-  console.log('📊 Database tables ready (including PDF support)');
+  // ========== NEW: MCQ MODE COLUMNS ==========
+  // Add MCQ columns to attempts table
+  db.run(`ALTER TABLE attempts ADD COLUMN selectedOption TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding selectedOption to attempts:', err.message);
+    }
+  });
+
+  db.run(`ALTER TABLE attempts ADD COLUMN correctOption TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding correctOption to attempts:', err.message);
+    }
+  });
+
+  db.run(`ALTER TABLE attempts ADD COLUMN isMCQ BOOLEAN DEFAULT 0`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding isMCQ to attempts:', err.message);
+    }
+  });
+
+  db.run(`ALTER TABLE attempts ADD COLUMN questionType TEXT DEFAULT 'long-form'`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding questionType to attempts:', err.message);
+    }
+  });
+
+  // Add mode-specific upload tracking to uploaded_files table
+  db.run(`ALTER TABLE uploaded_files ADD COLUMN uploadMode TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding uploadMode to uploaded_files:', err.message);
+    }
+  });
+
+  db.run(`ALTER TABLE uploaded_files ADD COLUMN questionType TEXT DEFAULT 'long-form'`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding questionType to uploaded_files:', err.message);
+    }
+  });
+
+  console.log('📊 Database tables ready (including PDF support and MCQ support)');
 });
 
 // ========================================
@@ -170,6 +209,25 @@ libraryDb.serialize(() => {
       rating REAL DEFAULT 0.0
     )
   `);
+
+  // Add MCQ-specific columns to library_questions
+  libraryDb.run(`ALTER TABLE library_questions ADD COLUMN questionType TEXT DEFAULT 'long-form'`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding questionType to library_questions:', err.message);
+    }
+  });
+
+  libraryDb.run(`ALTER TABLE library_questions ADD COLUMN mcqOptions TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding mcqOptions to library_questions:', err.message);
+    }
+  });
+
+  libraryDb.run(`ALTER TABLE library_questions ADD COLUMN correctOption TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding correctOption to library_questions:', err.message);
+    }
+  });
 
   libraryDb.run(`
     CREATE TABLE IF NOT EXISTS library_metadata (
@@ -572,7 +630,7 @@ async function isQuestionTooSimilar(newQuestion, subject) {
 // ========================================
 // SAVE QUESTION TO LIBRARY (Memory-Efficient)
 // ========================================
-async function saveQuestionToLibrary(question, perfectAnswer, subject, difficulty, chunkText, sourceType = 'pdf-ai', sourcePdf = null) {
+async function saveQuestionToLibrary(question, perfectAnswer, subject, difficulty, chunkText, sourceType = 'pdf-ai', sourcePdf = null, questionType = 'long-form', mcqOptions = null, correctOption = null) {
   try {
     // Check for similarity before saving
     const isSimilar = await isQuestionTooSimilar(question, subject);
@@ -590,19 +648,22 @@ async function saveQuestionToLibrary(question, perfectAnswer, subject, difficult
       }
     });
 
+    // Convert MCQ options to JSON if provided
+    const mcqOptionsJson = mcqOptions ? JSON.stringify(mcqOptions) : null;
+
     // Insert into library_questions (ignore duplicates via UNIQUE constraint)
     return new Promise((resolve, reject) => {
       libraryDb.run(
         `INSERT OR IGNORE INTO library_questions
-         (subject, question, perfect_answer, difficulty, tags, source_type, source_pdf)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [subject, question, perfectAnswer, difficulty, JSON.stringify(tags), sourceType, sourcePdf],
+         (subject, question, perfect_answer, difficulty, tags, source_type, source_pdf, questionType, mcqOptions, correctOption)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [subject, question, perfectAnswer, difficulty, JSON.stringify(tags), sourceType, sourcePdf, questionType, mcqOptionsJson, correctOption],
         (err) => {
           if (err) {
             console.error('❌ Library save error:', err.message);
             reject(err);
           } else {
-            console.log(`📚 Question saved to library [${subject}/${difficulty}]`);
+            console.log(`📚 ${questionType === 'mcq' ? '📋 MCQ' : '📝 Question'} saved to library [${subject}/${difficulty}]`);
 
             // Update metadata (async, non-blocking)
             libraryDb.run(
@@ -828,6 +889,309 @@ Return ONLY the question as a single sentence.`;
   }
 }
 
+// ========================================
+// MCQ GENERATION FUNCTIONS (NEW)
+// ========================================
+
+// Determine which question generation path to use based on context
+async function determinationGenerationPath(mode, fileId) {
+  try {
+    // Check if a PDF was uploaded in this mode
+    let uploadMode = null;
+    if (fileId) {
+      uploadMode = await new Promise((resolve, reject) => {
+        db.get('SELECT uploadMode FROM uploaded_files WHERE fileId = ?', [fileId], (err, row) => {
+          if (err) reject(err);
+          else resolve(row?.uploadMode || null);
+        });
+      });
+    }
+
+    // Determine the generation path
+    if (uploadMode === 'mcq' || mode === 'mcq') {
+      // MCQ Mode - generate multiple-choice questions
+      return {
+        type: 'mcq',
+        generator: uploadMode === 'mcq' && fileId ? 'generatePDFBasedMCQQuestion' : 'generateGenericAIMCQQuestion'
+      };
+    } else {
+      // Practice/Exam Mode - generate long-form questions
+      return {
+        type: 'long-form',
+        generator: fileId && uploadMode !== 'mcq' ? 'generatePDFBasedQuestion' : 'generateGenericAIQuestion'
+      };
+    }
+  } catch (error) {
+    console.error('❌ Error determining generation path:', error.message);
+    throw error;
+  }
+}
+
+// Generate generic MCQ question (without PDF context)
+async function generateGenericAIMCQQuestion(difficulty = 'medium') {
+  if (!OPENROUTER_API_KEY) {
+    throw new Error("OPENROUTER_API_KEY not set");
+  }
+
+  try {
+    console.log(`🤖 Generating generic MCQ question (${difficulty})...`);
+
+    // Difficulty-specific guidance
+    let difficultyGuidance = '';
+    if (difficulty === 'easy') {
+      difficultyGuidance =  `Focus on basic concepts, straightforward options with obvious distractors.`;
+    } else if (difficulty === 'hard') {
+      difficultyGuidance = `Create complex scenarios with similar-looking options that require deep reasoning.`;
+    } else {
+      difficultyGuidance = `Create questions requiring moderate reasoning with plausible distractors.`;
+    }
+
+    const prompt = `You are a medical examiner creating multiple-choice questions.
+
+TASK: Generate ONE medical MCQ question with exactly 4 options (A, B, C, D).
+
+DIFFICULTY: ${difficulty.toUpperCase()}
+${difficultyGuidance}
+
+Return ONLY valid JSON (no markdown, no backticks!) in this exact format:
+{
+  "question": "single sentence question here",
+  "options": {
+    "A": "option text here",
+    "B": "option text here",
+    "C": "option text here",
+    "D": "option text here"
+  },
+  "correctOption": "A",
+  "explanation": "why this is correct"
+}`;
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'gpt-oss-120b',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.8,
+        max_tokens: 400
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      console.error(`❌ API Error ${response.status}:`, err.substring(0, 200));
+      throw new Error(`API error ${response.status}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+
+    if (!content) {
+      throw new Error('Empty response from API');
+    }
+
+    // Parse JSON response
+    let mcqData;
+    try {
+      mcqData = JSON.parse(content);
+    } catch (e) {
+      console.error('❌ Failed to parse MCQ response:', content.substring(0, 200));
+      throw new Error('Invalid JSON format from API');
+    }
+
+    console.log('✅ MCQ Question Generated:', mcqData.question.substring(0, 80) + '...');
+
+    return {
+      question: mcqData.question,
+      options: mcqData.options,
+      correctOption: mcqData.correctOption,
+      explanation: mcqData.explanation,
+      difficulty: difficulty,
+      questionType: 'mcq',
+      pdfBased: false,
+      source: 'ai'
+    };
+  } catch (error) {
+    console.error('❌ MCQ Generation Failed:', error.message);
+    throw error;
+  }
+}
+
+// Generate PDF-based MCQ question
+async function generatePDFBasedMCQQuestion(sessionId, fileId, difficulty = 'medium') {
+  if (!OPENROUTER_API_KEY) {
+    throw new Error("OPENROUTER_API_KEY not set");
+  }
+
+  try {
+    // Get next chunk with rotation
+    const chunk = await getNextChunk(sessionId, fileId);
+
+    console.log(`📄 Generating MCQ from chunk ${chunk.chunkIndex} (${difficulty}, ${chunk.wordCount} words)...`);
+
+    // Difficulty-specific guidance
+    let difficultyGuidance = '';
+    if (difficulty === 'easy') {
+      difficultyGuidance = `Focus on basic concepts from the material, straightforward options.`;
+    } else if (difficulty === 'hard') {
+      difficultyGuidance = `Create complex scenarios requiring synthesis of multiple concepts.`;
+    } else {
+      difficultyGuidance = `Create questions requiring moderate reasoning and concept application.`;
+    }
+
+    const prompt = `You are a medical examiner creating MCQ from study material.
+
+CONTEXT FROM STUDY MATERIAL:
+"""
+${chunk.chunkText}
+"""
+
+CONTENT TYPE: ${chunk.chunkType}
+DIFFICULTY: ${difficulty.toUpperCase()}
+${difficultyGuidance}
+
+TASK: Generate ONE MCQ question with exactly 4 options (A, B, C, D) that:
+1. Tests understanding of SPECIFIC content from the context
+2. Has one clearly correct answer
+3. Includes plausible distractors
+4. References specific details from the material
+
+Return ONLY valid JSON (no markdown!) in this exact format:
+{
+  "question": "single sentence question here",
+  "options": {
+    "A": "option text",
+    "B": "option text",
+    "C": "option text",
+    "D": "option text"
+  },
+  "correctOption": "A",
+  "explanation": "why this is correct based on context"
+}`;
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'gpt-oss-120b',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.8,
+        max_tokens: 500
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      console.error(`❌ API Error ${response.status}:`, err.substring(0, 200));
+      throw new Error(`API error ${response.status}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+
+    if (!content) {
+      throw new Error('Empty response from API');
+    }
+
+    // Parse JSON response
+    let mcqData;
+    try {
+      mcqData = JSON.parse(content);
+    } catch (e) {
+      console.error('❌ Failed to parse PDF MCQ response:', content.substring(0, 200));
+      throw new Error('Invalid JSON from API');
+    }
+
+    // Get PDF metadata
+    const metadata = await new Promise((resolve, reject) => {
+      db.get(
+        'SELECT totalChunks, originalFilename FROM uploaded_files WHERE fileId = ?',
+        [fileId],
+        (err, row) => {
+          if (err) reject(err);
+          else resolve(row || {});
+        }
+      );
+    });
+
+    console.log('✅ PDF MCQ Generated:', mcqData.question.substring(0, 80) + '...');
+
+    return {
+      question: mcqData.question,
+      options: mcqData.options,
+      correctOption: mcqData.correctOption,
+      explanation: mcqData.explanation,
+      chunkIndex: chunk.chunkIndex,
+      totalChunks: metadata.totalChunks || 0,
+      chunkType: chunk.chunkType,
+      pdfFilename: metadata.originalFilename || 'Unknown PDF',
+      difficulty: difficulty,
+      questionType: 'mcq',
+      pdfBased: true,
+      source: 'pdf-ai'
+    };
+  } catch (error) {
+    console.error('❌ PDF MCQ Generation Failed:', error.message);
+    throw error;
+  }
+}
+
+// Generate multiple MCQ questions (6-20) with difficulty levels
+async function generateMultiplePDFMCQQuestions(sessionId, fileId, numberOfQuestions = 18, subject = 'General') {
+  if (!OPENROUTER_API_KEY) {
+    throw new Error("OPENROUTER_API_KEY not set");
+  }
+
+  try {
+    console.log(`\n📋 Generating ${numberOfQuestions} MCQ questions with 3 difficulty levels from PDF [Subject: ${subject}]...`);
+
+    // Calculate questions per difficulty level
+    const perLevel = Math.floor(numberOfQuestions / 3);
+    const difficultyLevels = [
+      { level: 'easy', count: perLevel, emoji: '🟢' },
+      { level: 'medium', count: perLevel, emoji: '🟡' },
+      { level: 'hard', count: perLevel, emoji: '🔴' }
+    ];
+
+    // Adjust for rounding
+    difficultyLevels[2].count += numberOfQuestions - (perLevel * 3);
+
+    console.log(`📊 MCQ Distribution: ${perLevel} easy, ${perLevel} medium, ${perLevel + (numberOfQuestions - perLevel * 3)} hard`);
+
+    const allGeneratedQuestions = [];
+
+    // Generate questions for each difficulty level
+    for (const diffLevel of difficultyLevels) {
+      console.log(`${diffLevel.emoji} Generating ${diffLevel.count} ${diffLevel.level} MCQ...`);
+
+      for (let i = 0; i < diffLevel.count; i++) {
+        try {
+          const mcqQuestion = await generatePDFBasedMCQQuestion(sessionId, fileId, diffLevel.level);
+          mcqQuestion.subject = subject;
+          allGeneratedQuestions.push(mcqQuestion);
+
+          // Save to library (async, non-blocking)
+          saveQuestionToLibrary(mcqQuestion.question, mcqQuestion.explanation, subject, diffLevel.level, mcqQuestion, 'pdf-ai', mcqQuestion.pdfFilename || 'Unknown', 'mcq', mcqQuestion.options, mcqQuestion.correctOption);
+        } catch (error) {
+          console.error(`⚠️  Failed to generate MCQ ${i + 1}/${diffLevel.count}:`, error.message);
+        }
+      }
+    }
+
+    console.log(`✅ Generated ${allGeneratedQuestions.length} MCQ questions total`);
+    return allGeneratedQuestions;
+  } catch (error) {
+    console.error('❌ Batch MCQ Generation Failed:', error.message);
+    throw error;
+  }
+}
+
 // Generate multiple questions (12-20) with different difficulty levels from PDF chunks
 async function generateMultiplePDFQuestions(sessionId, fileId, numberOfQuestions = 18, subject = 'General') {
   if (!OPENROUTER_API_KEY) {
@@ -1043,25 +1407,38 @@ async function updateUploadedFileStatus(fileId, status) {
 }
 
 // Background Question Generation - Spawned after PDF upload
-async function generateQuestionsInBackground(fileId) {
+async function generateQuestionsInBackground(fileId, uploadMode = 'practice') {
   try {
-    console.log(`\n🎯 Starting background question generation for ${fileId}...`);
+    console.log(`\n🎯 Starting background question generation for ${fileId} (uploadMode: ${uploadMode})...`);
 
     // Update status to 'extracting'
     await updateUploadedFileStatus(fileId, 'extracting');
 
     // Generate 1 batch = 10 questions total (faster extraction)
-    console.log(`\n📊 Generating 10 questions batch...`);
+    console.log(`\n📊 Generating 10 questions batch (${uploadMode} mode)...`);
 
     try {
-      const questions = await generateMultiplePDFQuestions(fileId, fileId, 10);
+      let questions;
+
+      if (uploadMode === 'mcq') {
+        // Generate MCQ questions for MCQ mode
+        console.log('📋 MCQ mode detected - generating MCQ questions...');
+        questions = await generateMultiplePDFMCQQuestions(fileId, fileId, 10, 'General');
+      } else {
+        // Generate long-form questions for practice/exam modes
+        console.log('📝 Long-form mode detected - generating traditional questions...');
+        questions = await generateMultiplePDFQuestions(fileId, fileId, 10, 'General');
+      }
 
       // Insert each question into cache
       for (const q of questions) {
-        await insertCachedQuestion(fileId, q);
+        // MCQ questions don't go to cached_questions (they go directly to library)
+        if (uploadMode !== 'mcq') {
+          await insertCachedQuestion(fileId, q);
+        }
       }
 
-      console.log(`✅ Cached ${questions.length} questions`);
+      console.log(`✅ Generated ${questions.length} ${uploadMode === 'mcq' ? 'MCQ' : 'long-form'} questions`);
     } catch (batchError) {
       console.error(`⚠️ Batch generation failed:`, batchError.message);
       throw batchError;
@@ -1293,18 +1670,35 @@ app.post('/pdf/upload', upload.single('pdfFile'), async (req, res) => {
       return res.status(400).json({ success: false, error: 'No file uploaded' });
     }
 
+    // Get uploadMode from request (which mode is uploading this PDF)
+    const uploadMode = req.body.uploadMode || 'practice'; // default to practice
+
     const result = await processPDF(req.file.path, req.file.originalname);
 
     if (result.success) {
-      // Spawn background question generation (non-blocking)
       const fileId = result.fileId;
-      console.log(`\n📨 Spawning background generation for ${fileId}...`);
-      generateQuestionsInBackground(fileId).catch(err => {
+
+      // Store uploadMode in database
+      db.run(
+        'UPDATE uploaded_files SET uploadMode = ?, questionType = ? WHERE fileId = ?',
+        [uploadMode, uploadMode === 'mcq' ? 'mcq' : 'long-form', fileId],
+        (err) => {
+          if (err) {
+            console.error('Error setting uploadMode:', err.message);
+          } else {
+            console.log(`✅ Set uploadMode="${uploadMode}" for ${fileId}`);
+          }
+        }
+      );
+
+      // Spawn background question generation (non-blocking)
+      console.log(`\n📨 Spawning background generation for ${fileId} (mode: ${uploadMode})...`);
+      generateQuestionsInBackground(fileId, uploadMode).catch(err => {
         console.error(`❌ Background job error for ${fileId}:`, err.message);
       });
 
       // Return result immediately to frontend
-      res.json(result);
+      res.json({ ...result, uploadMode, questionType: uploadMode === 'mcq' ? 'mcq' : 'long-form' });
     } else {
       res.status(500).json(result);
     }
@@ -1760,6 +2154,105 @@ app.post("/perfect-answer", async (req, res) => {
   }
 });
 
+// ========================================
+// MCQ MODE ENDPOINTS (NEW)
+// ========================================
+
+// POST: Get MCQ question
+app.post("/mcq-question", async (req, res) => {
+  try {
+    const { sessionId, fileId, difficulty } = req.body;
+    const diff = difficulty || 'medium';
+
+    console.log(`📋 MCQ Question Endpoint - sessionId=${sessionId}, fileId=${fileId}, difficulty=${diff}`);
+
+    if (!OPENROUTER_API_KEY) {
+      console.warn('⚠️ No API key - returning fallback MCQ');
+      const fakeMCQ = {
+        question: "What is a multiple choice question?",
+        options: { A: "A question with options", B: "A question", C: "An exam", D: "A test" },
+        correctOption: "A",
+        explanation: "MCQ has multiple choice options.",
+        difficulty: diff,
+        questionType: 'mcq',
+        pdfBased: false,
+        source: 'fallback'
+      };
+      return res.json(fakeMCQ);
+    }
+
+    let mcqQuestion;
+
+    // Determine if this is PDF-based or generic MCQ
+    if (fileId) {
+      // PDF-based MCQ
+      console.log('📄 PDF-based MCQ mode');
+      mcqQuestion = await generatePDFBasedMCQQuestion(sessionId, fileId, diff);
+    } else {
+      // Generic MCQ
+      console.log('🤖 Generic MCQ mode');
+      mcqQuestion = await generateGenericAIMCQQuestion(diff);
+    }
+
+    res.json(mcqQuestion);
+  } catch (error) {
+    console.error('❌ MCQ Generation Error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      question: "Failed to generate MCQ. Please try again.",
+      options: { A: "Error", B: "Retry", C: "Try again", D: "Refresh" },
+      correctOption: "A",
+      explanation: "An error occurred generating the MCQ."
+    });
+  }
+});
+
+// POST: Evaluate MCQ answer
+app.post("/mcq-evaluate", async (req, res) => {
+  try {
+    const { sessionId, selectedOption, correctOption, difficulty } = req.body;
+
+    console.log(`📋 MCQ Evaluate - selected=${selectedOption}, correct=${correctOption}, difficulty=${difficulty}`);
+
+    // Simple evaluation logic
+    const isCorrect = selectedOption === correctOption;
+    const score = isCorrect ? 10 : 0;
+
+    // Save to database
+    if (sessionId) {
+      db.run(
+        `INSERT INTO attempts (sessionId, questionIndex, question, answer, score, selectedOption, correctOption, isMCQ, questionType, timestamp)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [sessionId, 0, 'MCQ', selectedOption, score, selectedOption, correctOption, 1, 'mcq', new Date().toISOString()],
+        (err) => {
+          if (err) {
+            console.error('❌ Error saving MCQ attempt:', err.message);
+          } else {
+            console.log(`✅ MCQ attempt saved (score: ${score})`);
+          }
+        }
+      );
+    }
+
+    res.json({
+      isCorrect,
+      score,
+      selectedOption,
+      correctOption,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ MCQ Evaluate Error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      isCorrect: false,
+      score: 0
+    });
+  }
+});
+
 // GET: Health check
 app.get("/health", (req, res) => {
   res.json({
@@ -1942,9 +2435,9 @@ app.get('/library/subjects', (req, res) => {
 
 // GET: Browse library questions by subject and difficulty
 app.get('/library/questions', (req, res) => {
-  const { subject = null, difficulty = null, limit = 20, offset = 0 } = req.query;
+  const { subject = null, difficulty = null, questionType = null, limit = 20, offset = 0 } = req.query;
 
-  console.log(`📚 Browsing library - Subject: ${subject || 'All'}, Difficulty: ${difficulty || 'All'}`);
+  console.log(`📚 Browsing library - Subject: ${subject || 'All'}, Difficulty: ${difficulty || 'All'}, Type: ${questionType || 'All'}`);
 
   let query = 'SELECT * FROM library_questions WHERE 1=1';
   const params = [];
@@ -1957,6 +2450,12 @@ app.get('/library/questions', (req, res) => {
   if (difficulty && difficulty !== 'All') {
     query += ' AND difficulty = ?';
     params.push(difficulty);
+  }
+
+  // NEW: Filter by question type (mcq or long-form)
+  if (questionType && questionType !== 'all') {
+    query += ' AND questionType = ?';
+    params.push(questionType);
   }
 
   query += ' ORDER BY created_date DESC LIMIT ? OFFSET ?';
