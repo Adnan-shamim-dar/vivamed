@@ -22,8 +22,93 @@ if (!OPENROUTER_API_KEY) {
 }
 
 // ========================================
-// DATABASE SETUP
+// AI MODEL CONFIGURATION - ABSTRACTION LAYER
 // ========================================
+// Switch models here for faster inference testing
+// Test candidates: 'stepfun/step-3.5-flash', 'mistral-7b', 'gpt-3.5-turbo', 'gpt-4o'
+
+const CONFIG_KEYS = Object.freeze({
+  QUESTION_GENERATION: 'questionGeneration',
+  MCQ_GENERATION: 'mcqGeneration',
+  EVALUATION: 'evaluation',
+  PERFECT_ANSWER: 'perfectAnswer'
+});
+
+const DEFAULT_MODEL = 'gpt-oss-120b';
+const SELECTED_MODEL = process.env.AI_MODEL || DEFAULT_MODEL;
+
+const AI_MODEL_CONFIG = {
+  [CONFIG_KEYS.QUESTION_GENERATION]: {
+    model: SELECTED_MODEL,
+    temperature: 0.8,
+    maxTokens: 250
+  },
+  [CONFIG_KEYS.MCQ_GENERATION]: {
+    model: SELECTED_MODEL,
+    temperature: 0.8,
+    maxTokens: 400
+  },
+  [CONFIG_KEYS.EVALUATION]: {
+    model: SELECTED_MODEL,
+    temperature: 0.7,
+    maxTokens: 350
+  },
+  [CONFIG_KEYS.PERFECT_ANSWER]: {
+    model: SELECTED_MODEL,
+    temperature: 0.5,
+    maxTokens: 300
+  }
+};
+
+console.log(`🤖 AI Model: ${SELECTED_MODEL}`);
+
+// Helper function to make OpenRouter API calls with current model configuration
+async function callOpenRouterAPI(prompt, configKey = CONFIG_KEYS.QUESTION_GENERATION) {
+  if (!OPENROUTER_API_KEY) {
+    throw new Error("OPENROUTER_API_KEY not set");
+  }
+
+  // Validate configKey to prevent silent fallbacks
+  if (!AI_MODEL_CONFIG[configKey]) {
+    const validKeys = Object.values(CONFIG_KEYS).join(', ');
+    throw new Error(`Invalid configKey: "${configKey}". Valid keys: ${validKeys}`);
+  }
+
+  const config = AI_MODEL_CONFIG[configKey];
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: config.model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: config.temperature,
+      max_tokens: config.maxTokens
+    })
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`API error ${response.status}: ${err.substring(0, 200)}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error('Empty response from API');
+  }
+
+  return content;
+}
+
+// Helper to avoid redundant timeout code
+async function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 const db = new sqlite3.Database('./data/progress.db', (err) => {
   if (err) console.error('❌ Database error:', err);
   else console.log('✅ Database connected');
@@ -355,18 +440,8 @@ async function evaluateAnswerWithAI(question, answer) {
 
   try {
     console.log('🎓 Calling AI Professor for strict evaluation...');
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'gpt-oss-120b',
-        messages: [
-          {
-            role: 'user',
-            content: `You are a strict medical viva examiner. Evaluate this student's answer professionally and concisely.
+
+    const prompt = `You are a strict medical viva examiner. Evaluate this student's answer professionally and concisely.
 
 QUESTION: ${question}
 
@@ -386,27 +461,9 @@ Missing Concepts:
 - (1-2 important concepts not mentioned)
 
 Follow-up Question:
-(A challenging follow-up question to test deeper understanding)`
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 350
-      })
-    });
+(A challenging follow-up question to test deeper understanding)`;
 
-    if (!response.ok) {
-      const err = await response.text();
-      console.error(`❌ AI Evaluation Error ${response.status}:`, err.substring(0, 200));
-      return evaluateAnswer(question, answer);
-    }
-
-    const data = await response.json();
-    if (!data.choices?.[0]?.message?.content) {
-      console.warn('⚠️ Invalid AI response, using local evaluation');
-      return evaluateAnswer(question, answer);
-    }
-
-    const aiEvaluation = data.choices[0].message.content.trim();
+    const aiEvaluation = await callOpenRouterAPI(prompt, CONFIG_KEYS.EVALUATION);
     console.log('✅ AI Evaluation Complete');
 
     // Extract score from AI response
@@ -426,25 +483,10 @@ Follow-up Question:
 
 // ==== NEW: PERFECT ANSWER GENERATION ====
 async function generatePerfectAnswer(question) {
-  if (!OPENROUTER_API_KEY) {
-    throw new Error("OPENROUTER_API_KEY not set");
-  }
-
   try {
     console.log('✏️ [PERFECT ANSWER] Generating answer for:', question.substring(0, 60) + '...');
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'gpt-oss-120b',
-        messages: [
-          {
-            role: 'user',
-            content: `You are a senior medical educator. Provide a PERFECT, CONCISE, exam-ready answer to this medical viva question.
+    const prompt = `You are a senior medical educator. Provide a PERFECT, CONCISE, exam-ready answer to this medical viva question.
 
 QUESTION: ${question}
 
@@ -454,35 +496,9 @@ Requirements:
 - Use proper medical terminology
 - Be suitable for a high-scoring exam response
 
-ANSWER:`
-          }
-        ],
-        temperature: 0.5,
-        max_tokens: 300
-      })
-    });
+ANSWER:`;
 
-    console.log('📡 [PERFECT ANSWER] API Response Status:', response.status);
-
-    if (!response.ok) {
-      const err = await response.text();
-      console.error(`❌ [PERFECT ANSWER] API Error ${response.status}:`, err.substring(0, 300));
-      throw new Error(`API error ${response.status}: ${err.substring(0, 100)}`);
-    }
-
-    const data = await response.json();
-    console.log('📦 [PERFECT ANSWER] Response keys:', Object.keys(data));
-
-    if (!data.choices?.[0]?.message?.content) {
-      console.error('❌ [PERFECT ANSWER] Invalid response format:', JSON.stringify(data).substring(0, 300));
-      throw new Error('Invalid response format - no content in message');
-    }
-
-    const perfectAnswer = data.choices[0].message.content.trim();
-
-    if (!perfectAnswer) {
-      throw new Error('Empty answer received from API');
-    }
+    const perfectAnswer = await callOpenRouterAPI(prompt, CONFIG_KEYS.PERFECT_ANSWER);
 
     console.log('✅ [PERFECT ANSWER] Generated successfully:', perfectAnswer.substring(0, 80) + '...');
     return perfectAnswer;
@@ -497,25 +513,10 @@ ANSWER:`
 // CONTEXTUAL PERFECT ANSWER (From PDF Chunk)
 // ========================================
 async function generateContextualPerfectAnswer(chunkText, question) {
-  if (!OPENROUTER_API_KEY) {
-    throw new Error("OPENROUTER_API_KEY not set");
-  }
-
   try {
     console.log('📖 Generating contextual answer from PDF chunk...');
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'gpt-oss-120b',
-        messages: [
-          {
-            role: 'user',
-            content: `You are a senior medical educator. Provide a PERFECT, exam-ready answer to this question using ONLY information from the provided study material.
+    const prompt = `You are a senior medical educator. Provide a PERFECT, exam-ready answer to this question using ONLY information from the provided study material.
 
 STUDY MATERIAL:
 """
@@ -531,27 +532,9 @@ Requirements:
 - Use proper medical terminology
 - Be suitable for a high-scoring exam response
 
-ANSWER:`
-          }
-        ],
-        temperature: 0.5,
-        max_tokens: 300
-      })
-    });
+ANSWER:`;
 
-    if (!response.ok) {
-      const err = await response.text();
-      console.error(`❌ [CONTEXTUAL ANSWER] API Error ${response.status}:`, err.substring(0, 200));
-      throw new Error(`API error ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    if (!data.choices?.[0]?.message?.content) {
-      throw new Error('Invalid response format from API');
-    }
-
-    const contextualAnswer = data.choices[0].message.content.trim();
+    const contextualAnswer = await callOpenRouterAPI(prompt, CONFIG_KEYS.PERFECT_ANSWER);
 
     if (!contextualAnswer) {
       throw new Error('Empty answer received from API');
@@ -689,51 +672,11 @@ async function saveQuestionToLibrary(question, perfectAnswer, subject, difficult
 // ========================================
 
 async function generateGenericAIQuestion() {
-  if (!OPENROUTER_API_KEY) {
-    throw new Error("OPENROUTER_API_KEY not set");
-  }
-
   try {
     console.log('🤖 Calling OpenRouter API for AI question...');
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'gpt-oss-120b',
-        messages: [
-          {
-            role: 'user',
-            content: 'Generate ONE medical viva exam question. Return ONLY the question as a single sentence.'
-          }
-        ],
-        temperature: 0.8,
-        max_tokens: 150
-      })
-    });
 
-    console.log(`📡 OpenRouter API Response Status: ${response.status}`);
-
-    if (!response.ok) {
-      const err = await response.text();
-      console.error(`❌ OpenRouter API Error ${response.status}:`, err.substring(0, 200));
-      throw new Error(`API error ${response.status}`);
-    }
-
-    const data = await response.json();
-    console.log('📦 API Response Structure:', JSON.stringify(data).substring(0, 300));
-
-    if (!data.choices || !data.choices[0] || !data.choices[0].message || !data.choices[0].message.content) {
-      console.error('❌ Invalid API response - missing content:', JSON.stringify(data).substring(0, 500));
-      throw new Error('Invalid response format - no content in message');
-    }
-
-    const question = data.choices[0].message.content.trim();
-    if (!question) {
-      throw new Error('Empty question received from API');
-    }
+    const prompt = 'Generate ONE medical viva exam question. Return ONLY the question as a single sentence.';
+    const question = await callOpenRouterAPI(prompt, CONFIG_KEYS.QUESTION_GENERATION);
 
     console.log('✅ AI Question Generated Successfully:', question.substring(0, 50) + '...');
     return question;
@@ -792,10 +735,6 @@ async function getNextChunk(sessionId, fileId) {
 
 // Generate PDF-based question using chunk context
 async function generatePDFBasedQuestion(sessionId, fileId) {
-  if (!OPENROUTER_API_KEY) {
-    throw new Error("OPENROUTER_API_KEY not set");
-  }
-
   try {
     // Get next chunk with rotation
     const chunk = await getNextChunk(sessionId, fileId);
@@ -822,43 +761,8 @@ IMPORTANT: The question must be DIRECTLY tied to the content provided. Do NOT ge
 
 Return ONLY the question as a single sentence.`;
 
-    // Call OpenRouter API
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'gpt-oss-120b',
-        messages: [
-          {
-            role: 'user',
-            content: enhancedPrompt
-          }
-        ],
-        temperature: 0.8,
-        max_tokens: 200
-      })
-    });
-
-    if (!response.ok) {
-      const err = await response.text();
-      console.error(`❌ OpenRouter API Error ${response.status}:`, err.substring(0, 200));
-      throw new Error(`API error ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    if (!data.choices || !data.choices[0] || !data.choices[0].message || !data.choices[0].message.content) {
-      throw new Error('Invalid response format - no content in message');
-    }
-
-    const question = data.choices[0].message.content.trim();
-
-    if (!question) {
-      throw new Error('Empty question received from API');
-    }
+    // Call OpenRouter API via helper
+    const question = await callOpenRouterAPI(enhancedPrompt, CONFIG_KEYS.QUESTION_GENERATION);
 
     console.log('✅ PDF-Based Question Generated:', question.substring(0, 80) + '...');
 
@@ -992,10 +896,6 @@ const FALLBACK_MCQ_POOLS = {
 };
 
 async function generateGenericAIMCQQuestion(difficulty = 'medium') {
-  if (!OPENROUTER_API_KEY) {
-    throw new Error("OPENROUTER_API_KEY not set");
-  }
-
   const MAX_RETRIES = 2;
   let lastError;
 
@@ -1025,39 +925,14 @@ Return ONLY valid JSON (no markdown, no backticks!) in this exact format:
     try {
       console.log(`🤖 Generating generic MCQ question (${difficulty}) - Attempt ${attempt}/${MAX_RETRIES}...`);
 
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'gpt-oss-120b',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.8,
-          max_tokens: 400
-        })
-      });
-
-      if (!response.ok) {
-        const err = await response.text();
-        console.error(`❌ API Error ${response.status}:`, err.substring(0, 200));
-        lastError = new Error(`API error ${response.status}`);
-        if (attempt < MAX_RETRIES) {
-          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-          continue;
-        }
-        throw lastError;
-      }
-
-      const data = await response.json();
-      const content = data.choices?.[0]?.message?.content;
+      // Use helper function to call API
+      const content = await callOpenRouterAPI(prompt, CONFIG_KEYS.MCQ_GENERATION);
 
       if (!content) {
         console.error('❌ Missing content in API response');
         lastError = new Error('Empty response from API');
         if (attempt < MAX_RETRIES) {
-          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          await delay(1000 * attempt);
           continue;
         }
         throw lastError;
@@ -1071,7 +946,7 @@ Return ONLY valid JSON (no markdown, no backticks!) in this exact format:
         console.error('❌ Failed to parse MCQ response:', content.substring(0, 200));
         lastError = new Error('Invalid JSON format from API');
         if (attempt < MAX_RETRIES) {
-          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          await delay(1000 * attempt);
           continue;
         }
         throw lastError;
@@ -1094,7 +969,7 @@ Return ONLY valid JSON (no markdown, no backticks!) in this exact format:
       console.error(`❌ MCQ Generation Attempt ${attempt} Failed:`, error.message);
       if (attempt < MAX_RETRIES) {
         console.log(`⏳ Retrying in ${1000 * attempt}ms...`);
-        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        await delay(1000 * attempt);
       }
     }
   }
@@ -1121,25 +996,14 @@ function getFallbackMCQ(difficulty = 'medium') {
 
 // Generate PDF-based MCQ question
 async function generatePDFBasedMCQQuestion(sessionId, fileId, difficulty = 'medium') {
-  if (!OPENROUTER_API_KEY) {
-    throw new Error("OPENROUTER_API_KEY not set");
-  }
-
   try {
     // Get next chunk with rotation
     const chunk = await getNextChunk(sessionId, fileId);
 
     console.log(`📄 Generating MCQ from chunk ${chunk.chunkIndex} (${difficulty}, ${chunk.wordCount} words)...`);
 
-    // Difficulty-specific guidance
-    let difficultyGuidance = '';
-    if (difficulty === 'easy') {
-      difficultyGuidance = `Focus on basic concepts from the material, straightforward options.`;
-    } else if (difficulty === 'hard') {
-      difficultyGuidance = `Create complex scenarios requiring synthesis of multiple concepts.`;
-    } else {
-      difficultyGuidance = `Create questions requiring moderate reasoning and concept application.`;
-    }
+    // Use shared difficulty guidance constant (DRY principle)
+    const difficultyGuidance = MCQ_DIFFICULTY_GUIDANCE[difficulty] || MCQ_DIFFICULTY_GUIDANCE.medium;
 
     const prompt = `You are a medical examiner creating MCQ from study material.
 
@@ -1171,28 +1035,8 @@ Return ONLY valid JSON (no markdown!) in this exact format:
   "explanation": "why this is correct based on context"
 }`;
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'gpt-oss-120b',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.8,
-        max_tokens: 500
-      })
-    });
-
-    if (!response.ok) {
-      const err = await response.text();
-      console.error(`❌ API Error ${response.status}:`, err.substring(0, 200));
-      throw new Error(`API error ${response.status}`);
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
+    // Call API via helper
+    const content = await callOpenRouterAPI(prompt, CONFIG_KEYS.MCQ_GENERATION);
 
     if (!content) {
       throw new Error('Empty response from API');
@@ -1293,10 +1137,6 @@ async function generateMultiplePDFMCQQuestions(sessionId, fileId, numberOfQuesti
 
 // Generate multiple questions (12-20) with different difficulty levels from PDF chunks
 async function generateMultiplePDFQuestions(sessionId, fileId, numberOfQuestions = 18, subject = 'General') {
-  if (!OPENROUTER_API_KEY) {
-    throw new Error("OPENROUTER_API_KEY not set");
-  }
-
   try {
     console.log(`\n🎯 Generating ${numberOfQuestions} questions with 3 difficulty levels from PDF [Subject: ${subject}]...`);
 
@@ -1377,30 +1217,7 @@ If original content is limited, you can paraphrase or extend concepts logically.
 Return ONLY the question as a single sentence.`;
 
         try {
-          const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              model: 'gpt-oss-120b',
-              messages: [{ role: 'user', content: enhancedPrompt }],
-              temperature: 0.8,
-              max_tokens: 200
-            })
-          });
-
-          if (!response.ok) {
-            throw new Error(`API error ${response.status}`);
-          }
-
-          const data = await response.json();
-          if (!data.choices || !data.choices[0] || !data.choices[0].message || !data.choices[0].message.content) {
-            throw new Error('Invalid API response - no content in message');
-          }
-
-          const question = data.choices[0].message.content.trim();
+          const question = await callOpenRouterAPI(enhancedPrompt, CONFIG_KEYS.QUESTION_GENERATION);
 
           if (question) {
             allGeneratedQuestions.push({
