@@ -116,6 +116,75 @@
   .btn-glow:hover::before {
     opacity: 1;
   }
+
+  /* ========== MCQ STYLING (NEW) ========== */
+  .mcq-option-btn {
+    position: relative;
+    padding: 1.5rem;
+    background: transparent;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-radius: 0.75rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-align: left;
+    font-size: 0.95rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    color: #d1d5db;
+  }
+
+  .mcq-option-btn:hover:not(:disabled) {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.1);
+  }
+
+  .mcq-option-btn.selected {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.2);
+    color: #3b82f6;
+  }
+
+  .mcq-option-btn.correct {
+    border-color: #10b981;
+    background: rgba(16, 185, 129, 0.2);
+    color: #10b981;
+  }
+
+  .mcq-option-btn.incorrect {
+    border-color: #ef4444;
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+  }
+
+  .mcq-option-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .mcq-option-btn .option-letter {
+    font-weight: bold;
+    font-size: 1.1rem;
+  }
+
+  .mcq-feedback.correct {
+    background: rgba(16, 185, 129, 0.1) !important;
+    border-left: 4px solid #10b981 !important;
+  }
+
+  .mcq-feedback.incorrect {
+    background: rgba(239, 68, 68, 0.1) !important;
+    border-left: 4px solid #ef4444 !important;
+  }
+
+  #mcq-next-btn.hidden {
+    display: none;
+  }
+
+  #mcq-next-btn:not(.hidden) {
+    display: inline-flex;
+  }
+
 </style>
 </head>
 
@@ -520,6 +589,71 @@
         </button>
         <button onclick="nextQuestion()" class="flex-1 px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold transition-smooth hover:scale-105">
           Next →
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- MCQ SCREEN (NEW) -->
+  <div id="mcqScreen" class="min-h-screen pt-20 pb-12 px-4 hidden">
+    <div class="max-w-4xl mx-auto">
+
+      <!-- Header with exit button -->
+      <div class="flex justify-between items-center mb-8">
+        <h1 id="mcqModeTitle" class="text-3xl font-bold gradient-text">MCQ Mode</h1>
+        <button onclick="exitMCQMode()" class="px-6 py-2 rounded-xl bg-gray-700 hover:bg-gray-600 text-white font-semibold transition-smooth hover:scale-105">
+          ← Back to Menu
+        </button>
+      </div>
+
+      <!-- Progress Info -->
+      <div class="flex justify-between items-center mb-6 text-gray-400">
+        <div>Question <span id="mcq-q-number">1</span>/<span id="mcq-total">18</span></div>
+        <div class="text-2xl font-bold text-blue-400">Score: <span id="mcq-score">0</span></div>
+      </div>
+
+      <!-- Question Card -->
+      <div class="p-8 rounded-2xl glass-effect border border-white/10 mb-8">
+        <div class="mb-4">
+          <span id="mcq-difficulty-badge" class="inline-block px-3 py-1 rounded-lg text-xs font-semibold bg-white/10 text-gray-300">Medium</span>
+        </div>
+        <p id="mcq-question-text" class="text-xl font-semibold text-gray-50 leading-relaxed"></p>
+      </div>
+
+      <!-- MCQ Options Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+        <button class="mcq-option-btn" data-option="A" onclick="selectMCQOption('A')">
+          <span class="option-letter font-bold text-lg">A</span>
+          <span class="option-text" id="mcq-option-a"></span>
+        </button>
+        <button class="mcq-option-btn" data-option="B" onclick="selectMCQOption('B')">
+          <span class="option-letter font-bold text-lg">B</span>
+          <span class="option-text" id="mcq-option-b"></span>
+        </button>
+        <button class="mcq-option-btn" data-option="C" onclick="selectMCQOption('C')">
+          <span class="option-letter font-bold text-lg">C</span>
+          <span class="option-text" id="mcq-option-c"></span>
+        </button>
+        <button class="mcq-option-btn" data-option="D" onclick="selectMCQOption('D')">
+          <span class="option-letter font-bold text-lg">D</span>
+          <span class="option-text" id="mcq-option-d"></span>
+        </button>
+      </div>
+
+      <!-- Feedback Section -->
+      <div id="mcq-feedback" class="hidden mb-8 p-6 rounded-2xl glass-effect border border-white/10">
+        <p id="mcq-result-message" class="text-lg font-semibold mb-2"></p>
+        <p id="mcq-explanation" class="text-gray-300 leading-relaxed"></p>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex gap-4 mb-8">
+        <button id="mcq-submit-btn" onclick="submitMCQAnswer()" class="flex-1 px-6 py-4 rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold transition-smooth hover:scale-105 shadow-lg">
+          ✓ Submit Answer
+        </button>
+        <button id="mcq-next-btn" onclick="nextMCQQuestion()" class="flex-1 px-6 py-4 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold transition-smooth hover:scale-105 shadow-lg hidden">
+          ➜ Next Question
         </button>
       </div>
 
@@ -1176,48 +1310,69 @@ async function startMode(mode) {
     appState.totalQuestions = 10;
     document.getElementById('timerDisplay').textContent = '300s';
     appState.timeLeft = 300;
+  } else if (mode === 'mcq') {  // NEW: MCQ mode settings
+    appState.mcqMode = true;
+    appState.mcqQuestionNumber = 1;
+    appState.mcqTotalQuestions = 18;  // Use Infinity for truly unlimited, or set a number
+    appState.mcqScore = 0;
   } else {
     appState.totalQuestions = Infinity;
     appState.timeLeft = 30;
   }
 
-  // Update UI
+  // Update UI - Show appropriate screen
   document.getElementById('modeScreen').classList.add('hidden');
-  document.getElementById('examScreen').classList.remove('hidden');
-  document.getElementById('navMenu').classList.remove('hidden');
-  document.getElementById('modeTitle').textContent = mode === 'exam' ? 'Exam Mode' : 'Practice Mode';
-  document.getElementById('modeTitle').classList.toggle('text-pink-400', mode === 'exam');
-  document.getElementById('modeTitle').classList.toggle('text-blue-400', mode !== 'exam');
 
-  // Fetch questions
-  const questionsToFetch = mode === 'exam' ? appState.totalQuestions : 3;
-  const fetchedQuestions = await fetchQuestionsFromServer(questionsToFetch);
-
-  if (fetchedQuestions.length > 0) {
-    appState.questions = fetchedQuestions;
-
-    // Store metadata
-    fetchedQuestions.forEach((q) => {
-      appState.sources.push(q.source || 'AI');
-      appState.chunkIndexes.push(q.chunkIndex || null);
-      appState.pdfBasedFlags.push(q.pdfBased || false);
-      appState.chunkTypes.push(q.chunkType || 'generic');
-      appState.totalChunksArray.push(q.totalChunks || null);
-      appState.pdfFilenames.push(q.pdfFilename || null);
-      appState.difficulties.push(q.difficulty || 'generic');
-      appState.difficultyEmojis.push(q.difficultyEmoji || '');
-    });
-
-    // Start polling for background generation if mode is practice (need more questions later)
-    if (mode === 'practice' && appState.uploadedPDF) {
-      appState.isPollingForNewQuestions = true;
-      startQuestionPolling(appState.uploadedPDF.fileId);
-    }
-
-    loadQuestion();
-    startTimer();
+  if (mode === 'mcq') {
+    document.getElementById('mcqScreen').classList.remove('hidden');  // NEW: Show MCQ screen
+    document.getElementById('examScreen').classList.add('hidden');
   } else {
-    alert('Failed to fetch questions. Please try again.');
+    document.getElementById('examScreen').classList.remove('hidden');
+    document.getElementById('mcqScreen').classList.add('hidden');  // NEW: Hide MCQ screen
+  }
+
+  document.getElementById('navMenu').classList.remove('hidden');
+
+  if (mode !== 'mcq') {
+    document.getElementById('modeTitle').textContent = mode === 'exam' ? 'Exam Mode' : 'Practice Mode';
+    document.getElementById('modeTitle').classList.toggle('text-pink-400', mode === 'exam');
+    document.getElementById('modeTitle').classList.toggle('text-blue-400', mode !== 'exam');
+  }
+
+  // Fetch questions/Load MCQ
+  if (mode === 'mcq') {
+    // NEW: MCQ mode - load first MCQ question
+    await loadMCQQuestion();
+  } else {
+    // Existing exam/practice mode logic
+    const questionsToFetch = mode === 'exam' ? appState.totalQuestions : 3;
+    const fetchedQuestions = await fetchQuestionsFromServer(questionsToFetch);
+
+    if (fetchedQuestions.length > 0) {
+      appState.questions = fetchedQuestions;
+
+      // Store metadata
+      fetchedQuestions.forEach((q) => {
+        appState.sources.push(q.source || 'AI');
+        appState.chunkIndexes.push(q.chunkIndex || null);
+        appState.pdfBasedFlags.push(q.pdfBased || false);
+        appState.chunkTypes.push(q.chunkType || 'generic');
+        appState.totalChunksArray.push(q.totalChunks || null);
+        appState.pdfFilenames.push(q.pdfFilename || null);
+        appState.difficulties.push(q.difficulty || 'generic');
+        appState.difficultyEmojis.push(q.difficultyEmoji || '');
+      });
+
+      // Start polling for background generation if mode is practice (need more questions later)
+      if (mode === 'practice' && appState.uploadedPDF) {
+        appState.isPollingForNewQuestions = true;
+        startQuestionPolling(appState.uploadedPDF.fileId);
+      }
+
+      loadQuestion();
+      startTimer();
+    } else {
+      alert('Failed to fetch questions. Please try again.');
     backToMenu();
   }
 }
@@ -2029,6 +2184,193 @@ document.addEventListener('DOMContentLoaded', () => {
     observer.observe(document.getElementById('nav-library'));
   }
 });
+
+// ========================================
+// MCQ MODE FUNCTIONS (NEW)
+// ========================================
+
+// Load MCQ Question from server
+async function loadMCQQuestion() {
+  try {
+    console.log('📋 Loading MCQ question...');
+
+    // Determine fileId if exists
+    const fileId = appState.currentModeUploadedPDF?.fileId || appState.mcqUploadedPDF?.fileId || null;
+
+    const response = await fetch('http://localhost:9999/mcq-question', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: appState.sessionId,
+        fileId: fileId,
+        difficulty: 'medium'
+      })
+    });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const mcqData = await response.json();
+    appState.mcqQuestion = mcqData;
+    appState.selectedOption = null;
+    appState.mcqSubmitted = false;
+    appState.mcqCorrectOption = mcqData.correctOption;
+    appState.mcqExplanation = mcqData.explanation;
+
+    // Render MCQ question
+    document.getElementById('mcq-question-text').textContent = mcqData.question;
+    document.getElementById('mcq-option-a').textContent = mcqData.options.A;
+    document.getElementById('mcq-option-b').textContent = mcqData.options.B;
+    document.getElementById('mcq-option-c').textContent = mcqData.options.C;
+    document.getElementById('mcq-option-d').textContent = mcqData.options.D;
+
+    // Update difficulty badge
+    const diffBadge = document.getElementById('mcq-difficulty-badge');
+    diffBadge.textContent = mcqData.difficulty ? mcqData.difficulty.charAt(0).toUpperCase() + mcqData.difficulty.slice(1) : 'Medium';
+    diffBadge.className = 'inline-block px-3 py-1 rounded-lg text-xs font-semibold';
+    if (mcqData.difficulty === 'easy') {
+      diffBadge.className += ' bg-green-500/20 text-green-300';
+    } else if (mcqData.difficulty === 'hard') {
+      diffBadge.className += ' bg-red-500/20 text-red-300';
+    } else {
+      diffBadge.className += ' bg-yellow-500/20 text-yellow-300';
+    }
+
+    // Reset UI
+    document.querySelectorAll('.mcq-option-btn').forEach(btn => {
+      btn.classList.remove('selected', 'correct', 'incorrect');
+      btn.disabled = false;
+    });
+    document.getElementById('mcq-feedback').classList.add('hidden');
+    document.getElementById('mcq-submit-btn').classList.remove('hidden');
+    document.getElementById('mcq-next-btn').classList.add('hidden');
+
+    console.log('✅ MCQ question loaded');
+  } catch (error) {
+    console.error('❌MCQ Load Error:', error.message);
+    alert('Failed to load MCQ. Please try again.');
+  }
+}
+
+// Select MCQ Option
+function selectMCQOption(letter) {
+  if (appState.mcqSubmitted) return; // Don't allow selection after submission
+
+  appState.selectedOption = letter;
+
+  // Update UI
+  document.querySelectorAll('.mcq-option-btn').forEach(btn => {
+    if (btn.dataset.option === letter) {
+      btn.classList.add('selected');
+    } else {
+      btn.classList.remove('selected');
+    }
+  });
+
+  console.log(`🎯 Selected option: ${letter}`);
+}
+
+// Submit MCQ Answer
+async function submitMCQAnswer() {
+  if (!appState.selectedOption) {
+    alert('Please select an option first');
+    return;
+  }
+
+  if (appState.mcqSubmitted) return; // Already submitted
+
+  try {
+    console.log(`📋 Submitting MCQ: selected=${appState.selectedOption}, correct=${appState.mcqCorrectOption}`);
+
+    appState.mcqSubmitted = true;
+
+    const isCorrect = appState.selectedOption === appState.mcqCorrectOption;
+    const score = isCorrect ? 10 : 0;
+    appState.mcqScore += score;
+
+    // Update UI buttons
+    document.querySelectorAll('.mcq-option-btn').forEach(btn => {
+      btn.disabled = true;
+
+      if (btn.dataset.option === appState.mcqCorrectOption) {
+        btn.classList.add('correct');
+      }
+      if (btn.dataset.option === appState.selectedOption && !isCorrect) {
+        btn.classList.add('incorrect');
+      }
+    });
+
+    // Show feedback
+    const feedbackDiv = document.getElementById('mcq-feedback');
+    const resultMsg = document.getElementById('mcq-result-message');
+    const explanation = document.getElementById('mcq-explanation');
+
+    feedbackDiv.classList.remove('hidden');
+    if (isCorrect) {
+      feedbackDiv.classList.remove('incorrect');
+      feedbackDiv.classList.add('correct');
+      resultMsg.textContent = `✓ Correct! 🎉 (+${score} points)`;
+      resultMsg.className = 'text-xl font-bold text-green-400';
+    } else {
+      feedbackDiv.classList.remove('correct');
+      feedbackDiv.classList.add('incorrect');
+      resultMsg.textContent = `✗ Incorrect (0 points). Correct answer: ${appState.mcqCorrectOption}`;
+      resultMsg.className = 'text-xl font-bold text-red-400';
+    }
+    explanation.textContent = appState.mcqExplanation;
+
+    // Hide submit button, show next button
+    document.getElementById('mcq-submit-btn').classList.add('hidden');
+    document.getElementById('mcq-next-btn').classList.remove('hidden');
+
+    // Update score display
+    document.getElementById('mcq-score').textContent = appState.mcqScore;
+
+    // Save attempt to database
+    await saveMCQAttempt(isCorrect, score);
+
+  } catch (error) {
+    console.error('❌ MCQ Submit Error:', error.message);
+    alert('Error submitting answer');
+  }
+}
+
+// Save MCQ attempt to database
+async function saveMCQAttempt(isCorrect, score) {
+  try {
+    await fetch('http://localhost:9999/progress/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: appState.sessionId,
+        question: appState.mcqQuestion.question,
+        answer: appState.selectedOption,
+        score: score,
+        selectedOption: appState.selectedOption,
+        correctOption: appState.mcqCorrectOption,
+        isMCQ: 1,
+        questionType: 'mcq'
+      })
+    });
+    console.log('💾 MCQ attempt saved');
+  } catch (error) {
+    console.error('⚠️ Error saving MCQ attempt:', error.message);
+  }
+}
+
+// Next MCQ Question
+async function nextMCQQuestion() {
+  appState.mcqQuestionNumber++;
+  await loadMCQQuestion();
+}
+
+// Exit MCQ Mode
+function exitMCQMode() {
+  console.log('🚪 Exiting MCQ mode...');
+  appState.mcqMode = false;
+  document.getElementById('mcqScreen').classList.add('hidden');
+  document.getElementById('modeScreen').classList.remove('hidden');
+  document.getElementById('navMenu').classList.add('hidden');
+}
 
 </script>
 
