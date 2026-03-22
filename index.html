@@ -260,14 +260,9 @@
                   <p id="uploadedFileInfo" class="text-sm text-gray-400"></p>
                 </div>
               </div>
-              <div class="flex gap-2">
-                <button onclick="generateMoreQuestions()" class="text-blue-400 hover:text-blue-300 font-semibold text-sm px-3 py-1 rounded-lg hover:bg-blue-500/10 transition-smooth">
-                  ⚡ Generate More
-                </button>
-                <button onclick="removePDF()" class="text-red-400 hover:text-red-300 font-semibold text-sm px-3 py-1 rounded-lg hover:bg-red-500/10 transition-smooth">
-                  Remove
-                </button>
-              </div>
+              <button onclick="removePDF()" class="text-red-400 hover:text-red-300 font-semibold text-sm px-3 py-1 rounded-lg hover:bg-red-500/10 transition-smooth">
+                Remove
+              </button>
             </div>
           </div>
 
@@ -477,6 +472,13 @@
         </button>
       </div>
 
+      <!-- ==== NEW: GENERATE MORE QUESTIONS BUTTON ==== -->
+      <div id="generateMoreWrapper" class="hidden mb-8">
+        <button onclick="generateMoreQuestionsInExam()" id="generateMoreBtn" class="w-full px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white font-bold transition-smooth hover:scale-105 shadow-lg">
+          ⚡ Generate More Questions
+        </button>
+      </div>
+
       <!-- Next Button (shown after submission) -->
       <div id="nextButtonWrapper" class="hidden mb-8">
         <button onclick="nextQuestion()" class="w-full px-8 py-4 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold text-lg transition-smooth hover:scale-105 shadow-lg flex items-center justify-center gap-2">
@@ -583,7 +585,10 @@ let appState = {
   questionPollingInterval: null, // Store interval ID
   generationProgress: 0,         // Track extraction progress
   // ==== NEW: Perfect answer tracking ====
-  isPerfectAnswerLoaded: false   // Flag to give 10/10 for perfect answers
+  isPerfectAnswerLoaded: false,   // Flag to give 10/10 for perfect answers
+  // ==== NEW: Auto-generation tracking ====
+  isAutoGenerating: false,        // Flag to prevent multiple auto-gen requests
+  autoGenTriggered: false         // Track if auto-gen was triggered for current session
 };
 
 // ========================================
@@ -867,15 +872,11 @@ function confirmSubjectSelection() {
 // ========================================
 // GENERATE MORE QUESTIONS FROM PDF
 // ========================================
-async function generateMoreQuestions() {
+async function generateMoreQuestionsBatch(showAlert = true) {
   if (!appState.uploadedPDF || !appState.pdfSubject) {
-    alert('Please upload a PDF and select a subject first');
-    return;
+    if (showAlert) alert('Please upload a PDF and select a subject first');
+    return false;
   }
-
-  const btn = event.target;
-  btn.disabled = true;
-  btn.innerHTML = '⏳ Generating...';
 
   try {
     console.log('⚡ Generating more questions from PDF...');
@@ -898,14 +899,83 @@ async function generateMoreQuestions() {
     const data = await response.json();
     console.log('✅ Generated', data.questions.length, 'new questions');
 
-    // Show success message
-    alert(`✅ Generated ${data.questions.length} new questions!\n\nEasy: ${data.easyCount}\nMedium: ${data.mediumCount}\nHard: ${data.hardCount}\n\nCheck Browse Library to see them!`);
+    if (showAlert) {
+      alert(`✅ Generated ${data.questions.length} new questions!\n\nEasy: ${data.easyCount}\nMedium: ${data.mediumCount}\nHard: ${data.hardCount}\n\nCheck Browse Library to see them!`);
+    }
 
-    btn.innerHTML = '⚡ Generate More';
-    btn.disabled = false;
+    return true;
   } catch (error) {
     console.error('Error generating more questions:', error);
-    alert('Failed to generate more questions. Check console for details.');
+    if (showAlert) {
+      alert('Failed to generate more questions. Check console for details.');
+    }
+    return false;
+  }
+}
+
+// Auto-generate more questions (background, non-blocking)
+async function autoGenerateMoreQuestions() {
+  if (!appState.uploadedPDF || !appState.pdfSubject) {
+    return;
+  }
+
+  appState.isAutoGenerating = true;
+  console.log('🔄 Auto-generating more questions in background...');
+
+  try {
+    await generateMoreQuestionsBatch(false); // No alert, silent
+    console.log('✅ Auto-generation completed');
+  } catch (error) {
+    console.error('Auto-generation failed:', error);
+  } finally {
+    appState.isAutoGenerating = false;
+  }
+}
+
+// Manual button click in exam/practice mode
+async function generateMoreQuestionsInExam() {
+  const btn = document.getElementById('generateMoreBtn');
+  btn.disabled = true;
+  btn.innerHTML = '⏳ Generating...';
+
+  try {
+    const success = await generateMoreQuestionsBatch(true);
+    if (success) {
+      btn.innerHTML = '✅ MoreGenerated!';
+      setTimeout(() => {
+        btn.innerHTML = '⚡ Generate More Questions';
+        btn.disabled = false;
+      }, 2000);
+    } else {
+      btn.innerHTML = '⚡ Generate More Questions';
+      btn.disabled = false;
+    }
+  } catch (error) {
+    console.error('Error:', error);
+    btn.innerHTML = '⚡ Generate More Questions';
+    btn.disabled = false;
+  }
+}
+
+// Legacy function name for compatibility
+async function generateMoreQuestions() {
+  if (!appState.uploadedPDF || !appState.pdfSubject) {
+    alert('Please upload a PDF and select a subject first');
+    return;
+  }
+
+  const btn = event.target;
+  btn.disabled = true;
+  btn.innerHTML = '⏳ Generating...';
+
+  try {
+    const success = await generateMoreQuestionsBatch(true);
+    if (success) {
+      btn.innerHTML = '⚡ Generate More';
+      btn.disabled = false;
+    }
+  } catch (error) {
+    console.error('Error:', error);
     btn.innerHTML = '⚡ Generate More';
     btn.disabled = false;
   }
@@ -1046,6 +1116,8 @@ async function startMode(mode) {
   appState.cachedQuestionsOffset = 0;
   appState.totalAvailableInCache = 0;
   appState.isPollingForNewQuestions = false;
+  appState.isAutoGenerating = false;
+  appState.autoGenTriggered = false;
 
   // ===== NEW: Push history state for exam/practice mode =====
   pushHistoryState('exam', mode);
@@ -1226,14 +1298,22 @@ async function fetchQuestionsFromServer(count) {
 // QUESTION LOADING & DISPLAY
 // ========================================
 function loadQuestion() {
-  // Check if we need more questions in practice mode
-  if (appState.mode === 'practice' && appState.currentQuestionIndex >= appState.questions.length - 1) {
-    // Generate next batch if polling active
-    if (!appState.isPollingForNewQuestions && appState.uploadedPDF) {
-      console.log('Starting background question polling...');
-      appState.isPollingForNewQuestions = true;
-      startQuestionPolling(appState.uploadedPDF.fileId);
+  // Check if we're approaching the end of questions in practice mode
+  const questionsRemaining = appState.questions.length - appState.currentQuestionIndex;
+
+  if (appState.mode === 'practice' && questionsRemaining <= 2 && appState.uploadedPDF && !appState.isAutoGenerating) {
+    // Show Generate More button
+    document.getElementById('generateMoreWrapper').classList.remove('hidden');
+
+    // Auto-generate more questions if not already triggered
+    if (!appState.autoGenTriggered) {
+      console.log('⚡ Auto-triggering question generation at end of current batch...');
+      appState.autoGenTriggered = true;
+      autoGenerateMoreQuestions(); // Non-blocking auto-generation
     }
+  } else if (appState.mode === 'exam') {
+    // Hide Generate More button in exam mode
+    document.getElementById('generateMoreWrapper').classList.add('hidden');
   }
 
   if (appState.currentQuestionIndex >= appState.questions.length) {
