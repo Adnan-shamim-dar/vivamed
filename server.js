@@ -928,6 +928,69 @@ async function determinationGenerationPath(mode, fileId) {
 }
 
 // Generate generic MCQ question (without PDF context)
+// ========================================
+// MCQ MODE - CONSTANTS AND HELPERS
+// ========================================
+
+// Difficulty guidance for MCQ generation
+const MCQ_DIFFICULTY_GUIDANCE = {
+  easy: `Focus on basic concepts, straightforward options with obvious distractors.`,
+  medium: `Create questions requiring moderate reasoning with plausible distractors.`,
+  hard: `Create complex scenarios with similar-looking options that require deep reasoning.`
+};
+
+// Fallback MCQs - created once at module load time
+const FALLBACK_MCQ_POOLS = {
+  easy: [
+    {
+      question: "What is the normal resting heart rate for a healthy adult?",
+      options: { A: "60-100 bpm", B: "40-60 bpm", C: "100-120 bpm", D: "120-140 bpm" },
+      correctOption: "A",
+      explanation: "Normal resting heart rate in adults is 60-100 beats per minute."
+    },
+    {
+      question: "Which blood type is known as the universal donor?",
+      options: { A: "O negative", B: "AB positive", C: "O positive", D: "A negative" },
+      correctOption: "A",
+      explanation: "O negative blood is the universal donor because it lacks A, B, and Rh antigens."
+    },
+    {
+      question: "What is the primary function of red blood cells?",
+      options: { A: "Transport oxygen", B: "Fight infections", C: "Clot blood", D: "Produce antibodies" },
+      correctOption: "A",
+      explanation: "Red blood cells contain hemoglobin which binds and transports oxygen throughout the body."
+    }
+  ],
+  medium: [
+    {
+      question: "Which enzyme is primarily responsible for breaking down fats in the small intestine?",
+      options: { A: "Pancreatic lipase", B: "Pepsin", C: "Amylase", D: "Trypsin" },
+      correctOption: "A",
+      explanation: "Pancreatic lipase is the main enzyme that hydrolyzes dietary triglycerides into fatty acids and glycerol in the small intestine."
+    },
+    {
+      question: "What is the primary mechanism of action of ACE inhibitors in hypertension treatment?",
+      options: { A: "Block angiotensin II formation", B: "Block beta-adrenergic receptors", C: "Block calcium channels", D: "Increase sodium excretion" },
+      correctOption: "A",
+      explanation: "ACE inhibitors prevent the conversion of angiotensin I to angiotensin II, reducing vasoconstriction and aldosterone secretion."
+    }
+  ],
+  hard: [
+    {
+      question: "A patient with acute myocardial infarction develops cardiogenic shock despite optimal medical therapy. What is the most appropriate next intervention?",
+      options: { A: "Intra-aortic balloon pump support", B: "Increased diuretics", C: "Beta-blockers", D: "Nitroglycerin infusion" },
+      correctOption: "A",
+      explanation: "IABP provides mechanical support by reducing afterload and improving coronary perfusion in refractory cardiogenic shock."
+    },
+    {
+      question: "In septic shock, what is the primary reason for peripheral vasodilation despite hypotension?",
+      options: { A: "Excessive nitric oxide production", B: "Catecholamine depletion", C: "Direct myocardial suppression", D: "Hypovolemia" },
+      correctOption: "A",
+      explanation: "Sepsis causes excessive NO production by inducible nitric oxide synthase, leading to vasodilation and contributing to distributive shock."
+    }
+  ]
+};
+
 async function generateGenericAIMCQQuestion(difficulty = 'medium') {
   if (!OPENROUTER_API_KEY) {
     throw new Error("OPENROUTER_API_KEY not set");
@@ -936,21 +999,9 @@ async function generateGenericAIMCQQuestion(difficulty = 'medium') {
   const MAX_RETRIES = 2;
   let lastError;
 
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      console.log(`🤖 Generating generic MCQ question (${difficulty}) - Attempt ${attempt}/${MAX_RETRIES}...`);
-
-      // Difficulty-specific guidance
-      let difficultyGuidance = '';
-      if (difficulty === 'easy') {
-        difficultyGuidance =  `Focus on basic concepts, straightforward options with obvious distractors.`;
-      } else if (difficulty === 'hard') {
-        difficultyGuidance = `Create complex scenarios with similar-looking options that require deep reasoning.`;
-      } else {
-        difficultyGuidance = `Create questions requiring moderate reasoning with plausible distractors.`;
-      }
-
-      const prompt = `You are a medical examiner creating multiple-choice questions.
+  // Build guidance and prompt ONCE before retry loop (avoid rebuilding on each attempt)
+  const difficultyGuidance = MCQ_DIFFICULTY_GUIDANCE[difficulty] || MCQ_DIFFICULTY_GUIDANCE.medium;
+  const prompt = `You are a medical examiner creating multiple-choice questions.
 
 TASK: Generate ONE medical MCQ question with exactly 4 options (A, B, C, D).
 
@@ -969,6 +1020,10 @@ Return ONLY valid JSON (no markdown, no backticks!) in this exact format:
   "correctOption": "A",
   "explanation": "why this is correct"
 }`;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      console.log(`🤖 Generating generic MCQ question (${difficulty}) - Attempt ${attempt}/${MAX_RETRIES}...`);
 
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
@@ -989,18 +1044,17 @@ Return ONLY valid JSON (no markdown, no backticks!) in this exact format:
         console.error(`❌ API Error ${response.status}:`, err.substring(0, 200));
         lastError = new Error(`API error ${response.status}`);
         if (attempt < MAX_RETRIES) {
-          await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // Exponential backoff
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
           continue;
         }
         throw lastError;
       }
 
       const data = await response.json();
-      console.log('📊 API Response structure:', JSON.stringify(data).substring(0, 300));
       const content = data.choices?.[0]?.message?.content;
 
       if (!content) {
-        console.error('❌ Missing content in API response. Full response:', JSON.stringify(data).substring(0, 500));
+        console.error('❌ Missing content in API response');
         lastError = new Error('Empty response from API');
         if (attempt < MAX_RETRIES) {
           await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
@@ -1050,69 +1104,12 @@ Return ONLY valid JSON (no markdown, no backticks!) in this exact format:
   return getFallbackMCQ(difficulty);
 }
 
-// Fallback MCQs for when API fails
+// Fallback MCQs for when API fails (uses pre-allocated module-level pools)
 function getFallbackMCQ(difficulty = 'medium') {
-  const easyMCQs = [
-    {
-      question: "What is the normal resting heart rate for a healthy adult?",
-      options: { A: "60-100 bpm", B: "40-60 bpm", C: "100-120 bpm", D: "120-140 bpm" },
-      correctOption: "A",
-      explanation: "Normal resting heart rate in adults is 60-100 beats per minute."
-    },
-    {
-      question: "Which blood type is known as the universal donor?",
-      options: { A: "O negative", B: "AB positive", C: "O positive", D: "A negative" },
-      correctOption: "A",
-      explanation: "O negative blood is the universal donor because it lacks A, B, and Rh antigens."
-    },
-    {
-      question: "What is the primary function of red blood cells?",
-      options: { A: "Transport oxygen", B: "Fight infections", C: "Clot blood", D: "Produce antibodies" },
-      correctOption: "A",
-      explanation: "Red blood cells contain hemoglobin which binds and transports oxygen throughout the body."
-    }
-  ];
-
-  const mediumMCQs = [
-    {
-      question: "Which enzyme is primarily responsible for breaking down fats in the small intestine?",
-      options: { A: "Pancreatic lipase", B: "Pepsin", C: "Amylase", D: "Trypsin" },
-      correctOption: "A",
-      explanation: "Pancreatic lipase is the main enzyme that hydrolyzes dietary triglycerides into fatty acids and glycerol in the small intestine."
-    },
-    {
-      question: "What is the primary mechanism of action of ACE inhibitors in hypertension treatment?",
-      options: { A: "Block angiotensin II formation", B: "Block beta-adrenergic receptors", C: "Block calcium channels", D: "Increase sodium excretion" },
-      correctOption: "A",
-      explanation: "ACE inhibitors prevent the conversion of angiotensin I to angiotensin II, reducing vasoconstriction and aldosterone secretion."
-    }
-  ];
-
-  const hardMCQs = [
-    {
-      question: "A patient with acute myocardial infarction develops cardiogenic shock despite optimal medical therapy. What is the most appropriate next intervention?",
-      options: { A: "Intra-aortic balloon pump support", B: "Increased diuretics", C: "Beta-blockers", D: "Nitroglycerin infusion" },
-      correctOption: "A",
-      explanation: "IABP provides mechanical support by reducing afterload and improving coronary perfusion in refractory cardiogenic shock."
-    },
-    {
-      question: "In septic shock, what is the primary reason for peripheral vasodilation despite hypotension?",
-      options: { A: "Excessive nitric oxide production", B: "Catecholamine depletion", C: "Direct myocardial suppression", D: "Hypovolemia" },
-      correctOption: "A",
-      explanation: "Sepsis causes excessive NO production by inducible nitric oxide synthase, leading to vasodilation and contributingto distributive shock."
-    }
-  ];
-
-  let mcqPool;
-  if (difficulty === 'easy') {
-    mcqPool = easyMCQs;
-  } else if (difficulty === 'hard') {
-    mcqPool = hardMCQs;
-  } else {
-    mcqPool = mediumMCQs;
-  }
-
+  // Fast O(1) lookup instead of if-else chain
+  const mcqPool = FALLBACK_MCQ_POOLS[difficulty] || FALLBACK_MCQ_POOLS.medium;
   const randomMCQ = mcqPool[Math.floor(Math.random() * mcqPool.length)];
+
   return {
     ...randomMCQ,
     difficulty: difficulty,
