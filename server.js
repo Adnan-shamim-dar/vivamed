@@ -135,7 +135,60 @@ db.serialize(() => {
     }
   });
 
+  // Add subject column to uploaded_files (for library organization)
+  db.run(`ALTER TABLE uploaded_files ADD COLUMN subject TEXT DEFAULT 'General'`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding subject to uploaded_files:', err.message);
+    }
+  });
+
   console.log('📊 Database tables ready (including PDF support)');
+});
+
+// ========================================
+// LIBRARY DATABASE SETUP (Local Question Library)
+// ========================================
+const libraryDb = new sqlite3.Database('./data/library.db', (err) => {
+  if (err) console.error('❌ Library database error:', err);
+  else console.log('✅ Library database connected');
+});
+
+// Create library tables if they don't exist
+libraryDb.serialize(() => {
+  libraryDb.run(`
+    CREATE TABLE IF NOT EXISTS library_questions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      subject TEXT,
+      question TEXT UNIQUE,
+      perfect_answer TEXT,
+      difficulty TEXT,
+      tags TEXT,
+      source_type TEXT DEFAULT 'pdf-ai',
+      source_pdf TEXT,
+      created_date TEXT DEFAULT CURRENT_TIMESTAMP,
+      usage_count INTEGER DEFAULT 0,
+      rating REAL DEFAULT 0.0
+    )
+  `);
+
+  libraryDb.run(`
+    CREATE TABLE IF NOT EXISTS library_metadata (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      store_date TEXT DEFAULT CURRENT_TIMESTAMP,
+      total_questions INTEGER DEFAULT 0,
+      total_subjects TEXT,
+      last_updated TEXT,
+      ai_availability_status TEXT DEFAULT 'available'
+    )
+  `);
+
+  // Initialize metadata if empty
+  libraryDb.run(`
+    INSERT OR IGNORE INTO library_metadata (id, total_questions, last_updated)
+    VALUES (1, 0, CURRENT_TIMESTAMP)
+  `);
+
+  console.log('📚 Library database tables ready');
 });
 
 
@@ -383,6 +436,133 @@ ANSWER:`
 }
 
 // ========================================
+// CONTEXTUAL PERFECT ANSWER (From PDF Chunk)
+// ========================================
+async function generateContextualPerfectAnswer(chunkText, question) {
+  if (!OPENROUTER_API_KEY) {
+    throw new Error("OPENROUTER_API_KEY not set");
+  }
+
+  try {
+    console.log('📖 Generating contextual answer from PDF chunk...');
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'gpt-oss-120b',
+        messages: [
+          {
+            role: 'user',
+            content: `You are a senior medical educator. Provide a PERFECT, exam-ready answer to this question using ONLY information from the provided study material.
+
+STUDY MATERIAL:
+"""
+${chunkText}
+"""
+
+QUESTION: ${question}
+
+Requirements:
+- Answer must be based on the study material above
+- Be comprehensive but focused (2-4 sentences)
+- Include specific details from the material
+- Use proper medical terminology
+- Be suitable for a high-scoring exam response
+
+ANSWER:`
+          }
+        ],
+        temperature: 0.5,
+        max_tokens: 300
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      console.error(`❌ [CONTEXTUAL ANSWER] API Error ${response.status}:`, err.substring(0, 200));
+      throw new Error(`API error ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.choices?.[0]?.message?.content) {
+      throw new Error('Invalid response format from API');
+    }
+
+    const contextualAnswer = data.choices[0].message.content.trim();
+
+    if (!contextualAnswer) {
+      throw new Error('Empty answer received from API');
+    }
+
+    console.log('✅ [CONTEXTUAL ANSWER] Generated:', contextualAnswer.substring(0, 80) + '...');
+    return contextualAnswer;
+
+  } catch (error) {
+    console.error('❌ [CONTEXTUAL ANSWER] Generation Failed:', error.message);
+    // Fall back to generic perfect answer if contextual fails
+    try {
+      console.log('   Falling back to generic perfect answer...');
+      return await generatePerfectAnswer(question);
+    } catch (fallbackError) {
+      console.error('❌ Fallback also failed:', fallbackError.message);
+      throw error;
+    }
+  }
+}
+
+// ========================================
+// SAVE QUESTION TO LIBRARY (Memory-Efficient)
+// ========================================
+async function saveQuestionToLibrary(question, perfectAnswer, subject, difficulty, chunkText, sourceType = 'pdf-ai', sourcePdf = null) {
+  try {
+    // Extract tags from question (keywords)
+    const tags = [];
+    const keywords = ['diagnosis', 'mechanism', 'pathophysiology', 'treatment', 'anatomy', 'clinical', 'differential', 'management', 'complications', 'risk'];
+    keywords.forEach(kw => {
+      if (question.toLowerCase().includes(kw)) {
+        tags.push(kw);
+      }
+    });
+
+    // Insert into library_questions (ignore duplicates via UNIQUE constraint)
+    return new Promise((resolve, reject) => {
+      libraryDb.run(
+        `INSERT OR IGNORE INTO library_questions
+         (subject, question, perfect_answer, difficulty, tags, source_type, source_pdf)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [subject, question, perfectAnswer, difficulty, JSON.stringify(tags), sourceType, sourcePdf],
+        (err) => {
+          if (err) {
+            console.error('❌ Library save error:', err.message);
+            reject(err);
+          } else {
+            console.log(`📚 Question saved to library [${subject}/${difficulty}]`);
+
+            // Update metadata (async, non-blocking)
+            libraryDb.run(
+              `UPDATE library_metadata SET
+               total_questions = (SELECT COUNT(*) FROM library_questions),
+               last_updated = CURRENT_TIMESTAMP
+               WHERE id = 1`
+            );
+
+            resolve();
+          }
+        }
+      );
+    });
+  } catch (error) {
+    console.error('❌ saveQuestionToLibrary failed:', error.message);
+    // Silent fail - don't break question generation
+  }
+}
+
+// ========================================
 // AI INTEGRATION
 // ========================================
 
@@ -588,13 +768,13 @@ Return ONLY the question as a single sentence.`;
 }
 
 // Generate multiple questions (12-20) with different difficulty levels from PDF chunks
-async function generateMultiplePDFQuestions(sessionId, fileId, numberOfQuestions = 18) {
+async function generateMultiplePDFQuestions(sessionId, fileId, numberOfQuestions = 18, subject = 'General') {
   if (!OPENROUTER_API_KEY) {
     throw new Error("OPENROUTER_API_KEY not set");
   }
 
   try {
-    console.log(`\n🎯 Generating ${numberOfQuestions} questions with 3 difficulty levels from PDF...`);
+    console.log(`\n🎯 Generating ${numberOfQuestions} questions with 3 difficulty levels from PDF [Subject: ${subject}]...`);
 
     // Calculate questions per difficulty level (equally distributed)
     const perLevel = Math.floor(numberOfQuestions / 3);
@@ -720,7 +900,35 @@ Return ONLY the question as a single sentence.`;
     }
 
     console.log(`\n✅ Generated ${allGeneratedQuestions.length} total questions`);
+
+    // Save all questions to local library (async, non-blocking)
+    console.log(`\n📚 Saving ${allGeneratedQuestions.length} questions to local library...`);
+    for (const q of allGeneratedQuestions) {
+      // Get the chunk text for contextual answer generation
+      const chunk = await new Promise((resolve, reject) => {
+        db.get(
+          'SELECT chunkText FROM pdf_chunks WHERE fileId = ? AND chunkIndex = ?',
+          [fileId, q.chunkIndex],
+          (err, row) => {
+            if (err) reject(err);
+            else resolve(row);
+          }
+        );
+      });
+
+      // Generate contextual perfect answer and save (non-blocking)
+      if (chunk) {
+        generateContextualPerfectAnswer(chunk.chunkText, q.question)
+          .then(answer => {
+            saveQuestionToLibrary(q.question, answer, subject, q.difficulty, chunk.chunkText, 'pdf-ai', q.pdfFilename)
+              .catch(err => console.log('  (Library save skipped)'));
+          })
+          .catch(err => console.log('  (Perfect answer generation failed, skipping library save)'));
+      }
+    }
+
     return allGeneratedQuestions;
+
   } catch (error) {
     console.error('❌ Multiple Question Generation Failed:', error.message);
     throw error;
@@ -1045,6 +1253,29 @@ app.post('/pdf/upload', upload.single('pdfFile'), async (req, res) => {
   }
 });
 
+// POST: Set subject for uploaded PDF
+app.post('/pdf/subject', (req, res) => {
+  const { fileId, subject } = req.body;
+
+  if (!fileId || !subject) {
+    return res.status(400).json({ success: false, error: 'fileId and subject required' });
+  }
+
+  console.log(`📚 Setting subject for ${fileId}: ${subject}`);
+
+  db.run(
+    'UPDATE uploaded_files SET subject = ? WHERE fileId = ?',
+    [subject, fileId],
+    (err) => {
+      if (err) {
+        console.error('Error setting subject:', err.message);
+        return res.status(500).json({ success: false, error: err.message });
+      }
+      res.json({ success: true, subject });
+    }
+  );
+});
+
 // GET: Check PDF processing status
 app.get('/pdf/status/:fileId', (req, res) => {
   const { fileId } = req.params;
@@ -1279,7 +1510,7 @@ app.post('/pdf/cached-questions', (req, res) => {
 // POST: Generate multiple questions with difficulty levels from PDF
 app.post('/pdf/generate-questions', async (req, res) => {
   try {
-    const { sessionId, fileId, numberOfQuestions = 18 } = req.body;
+    const { sessionId, fileId, numberOfQuestions = 18, subject = 'General' } = req.body;
 
     if (!sessionId || !fileId) {
       return res.status(400).json({
@@ -1288,9 +1519,9 @@ app.post('/pdf/generate-questions', async (req, res) => {
       });
     }
 
-    console.log(`\n📋 Request: Generate ${numberOfQuestions} questions from ${fileId}`);
+    console.log(`\n📋 Request: Generate ${numberOfQuestions} questions from ${fileId} (Subject: ${subject})`);
 
-    const questions = await generateMultiplePDFQuestions(sessionId, fileId, numberOfQuestions);
+    const questions = await generateMultiplePDFQuestions(sessionId, fileId, numberOfQuestions, subject);
 
     res.json({
       success: true,
@@ -1577,6 +1808,154 @@ app.get("/progress/stats/:sessionId", (req, res) => {
           maxScore,
           lastAttempt: rows && rows[0] ? rows[0].timestamp : null
         }
+      });
+    }
+  );
+});
+
+// ========================================
+// LIBRARY ENDPOINTS
+// ========================================
+
+// GET: List all subjects in library with question counts
+app.get('/library/subjects', (req, res) => {
+  console.log('📚 Fetching library subjects...');
+
+  libraryDb.all(
+    `SELECT subject, COUNT(*) as count FROM library_questions GROUP BY subject ORDER BY count DESC`,
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ success: false, error: err.message });
+      }
+
+      const subjects = rows.map(r => ({
+        subject: r.subject,
+        count: r.count
+      }));
+
+      // Get total questions
+      libraryDb.get(
+        'SELECT COUNT(*) as total FROM library_questions',
+        (err, totalsRow) => {
+          res.json({
+            success: true,
+            subjects,
+            total: totalsRow?.total || 0
+          });
+        }
+      );
+    }
+  );
+});
+
+// GET: Browse library questions by subject and difficulty
+app.get('/library/questions', (req, res) => {
+  const { subject = null, difficulty = null, limit = 20, offset = 0 } = req.query;
+
+  console.log(`📚 Browsing library - Subject: ${subject || 'All'}, Difficulty: ${difficulty || 'All'}`);
+
+  let query = 'SELECT * FROM library_questions WHERE 1=1';
+  const params = [];
+
+  if (subject && subject !== 'All') {
+    query += ' AND subject = ?';
+    params.push(subject);
+  }
+
+  if (difficulty && difficulty !== 'All') {
+    query += ' AND difficulty = ?';
+    params.push(difficulty);
+  }
+
+  query += ' ORDER BY created_date DESC LIMIT ? OFFSET ?';
+  params.push(parseInt(limit), parseInt(offset));
+
+  libraryDb.all(query, params, (err, rows) => {
+    if (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+
+    res.json({
+      success: true,
+      questions: rows || [],
+      total: rows?.length || 0
+    });
+  });
+});
+
+// POST: Question fallback when AI is down (Mix library + cached)
+app.post('/question/fallback', (req, res) => {
+  try {
+    const useLibrary = Math.random() > 0.5; // 50% chance
+
+    if (useLibrary) {
+      // Try to get from library
+      libraryDb.get(
+        'SELECT question, perfect_answer, subject, difficulty FROM library_questions ORDER BY RANDOM() LIMIT 1',
+        (err, libraryQuestion) => {
+          if (err || !libraryQuestion) {
+            console.log('   Library fetch failed, trying cache...');
+            // Fall back to cache if library fails
+            return fallbackToCache(req, res);
+          }
+
+          res.json({
+            success: true,
+            question: libraryQuestion.question,
+            perfect_answer: libraryQuestion.perfect_answer,
+            source: 'local-library',
+            subject: libraryQuestion.subject,
+            difficulty: libraryQuestion.difficulty,
+            note: 'Serving from local library (AI temporarily unavailable)'
+          });
+        }
+      );
+    } else {
+      // Try cache first
+      fallbackToCache(req, res);
+    }
+  } catch (error) {
+    console.error('❌ Fallback question error:', error.message);
+    res.status(500).json({ success: false, error: 'Fallback question failed' });
+  }
+
+  function fallbackToCache(req, res) {
+    db.get(
+      'SELECT question, difficulty, pdfBased, chunkType FROM cached_questions ORDER BY RANDOM() LIMIT 1',
+      (err, cachedQuestion) => {
+        if (err || !cachedQuestion) {
+          return res.status(404).json({ success: false, error: 'No fallback questions available' });
+        }
+
+        res.json({
+          success: true,
+          question: cachedQuestion.question,
+          source: 'cached',
+          difficulty: cachedQuestion.difficulty,
+          pdfBased: cachedQuestion.pdfBased,
+          note: 'Serving from cache (AI temporarily unavailable)'
+        });
+      }
+    );
+  }
+});
+
+// GET: Export all library questions as JSON
+app.get('/library/export', (req, res) => {
+  console.log('📦 Exporting library...');
+
+  libraryDb.all(
+    'SELECT * FROM library_questions ORDER BY created_date DESC',
+    (err, questions) => {
+      if (err) {
+        return res.status(500).json({ success: false, error: err.message });
+      }
+
+      res.json({
+        success: true,
+        export_date: new Date().toISOString(),
+        total_questions: questions.length,
+        questions
       });
     }
   );

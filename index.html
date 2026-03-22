@@ -274,6 +274,41 @@
             </div>
           </div>
 
+          <!-- Subject Selection Modal -->
+          <div id="subjectModal" class="mt-6 hidden">
+            <div class="p-6 rounded-xl glass-effect border border-white/10">
+              <h3 class="text-lg font-bold text-white mb-4">📚 What subject is this PDF about?</h3>
+              <select id="subjectDropdown" class="w-full mb-4 px-4 py-3 rounded-xl bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500">
+                <option value="">-- Select Subject --</option>
+                <option value="Anatomy">Anatomy</option>
+                <option value="Biochemistry">Biochemistry</option>
+                <option value="Cardiology">Cardiology</option>
+                <option value="Dermatology">Dermatology</option>
+                <option value="Gastroenterology">Gastroenterology</option>
+                <option value="General">General</option>
+                <option value="Hematology">Hematology</option>
+                <option value="Immunology">Immunology</option>
+                <option value="Microbiology">Microbiology</option>
+                <option value="Neurology">Neurology</option>
+                <option value="Obstetrics">Obstetrics</option>
+                <option value="Oncology">Oncology</option>
+                <option value="Orthopedics">Orthopedics</option>
+                <option value="Pathology">Pathology</option>
+                <option value="Pharmacology">Pharmacology</option>
+                <option value="Physiology">Physiology</option>
+                <option value="Psychiatry">Psychiatry</option>
+                <option value="Radiology">Radiology</option>
+                <option value="Rheumatology">Rheumatology</option>
+                <option value="Surgery">Surgery</option>
+                <option value="Other">Other (Custom)</option>
+              </select>
+              <input id="customSubject" type="text" placeholder="Enter custom subject..." class="w-full mb-4 px-4 py-3 rounded-xl bg-slate-700 border border-slate-600 text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 hidden">
+              <button onclick="confirmSubjectSelection()" class="w-full px-6 py-3 rounded-xl bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-bold transition-smooth">
+                Continue ✓
+              </button>
+            </div>
+          </div>
+
           <!-- Question Source Toggle -->
           <div id="questionSourceToggle" class="mt-6 hidden">
             <label class="flex items-center gap-3 text-gray-300 cursor-pointer hover:text-white transition-smooth">
@@ -489,6 +524,7 @@ let appState = {
   progressSaved: 0,
   uploadedPDF: null,
   usePDFQuestions: true,
+  pdfSubject: null,  // NEW: Subject of the uploaded PDF
   chunkIndexes: [],
   pdfBasedFlags: [],
   chunkTypes: [],
@@ -662,16 +698,11 @@ async function handlePDFUpload(event) {
       appState.usePDFQuestions = true;
       document.getElementById('usePDFQuestions').checked = true;
 
-      // Show upload status
-      document.getElementById('uploadContainer').classList.add('hidden');
-      document.getElementById('uploadStatus').classList.remove('hidden');
-      document.getElementById('uploadedFileName').textContent = file.name;
-      document.getElementById('uploadedFileInfo').textContent = `${data.totalChunks} study chunks extracted`;
+      // Show subject selection modal
+      document.getElementById('processingStatus').classList.add('hidden');
+      document.getElementById('subjectModal').classList.remove('hidden');
 
-      // Show question source toggle
-      document.getElementById('questionSourceToggle').classList.remove('hidden');
-
-      // Start polling for extraction completion
+      // Start polling for extraction completion in background
       startExtractionPolling(data.fileId);
     }
   } catch (error) {
@@ -741,6 +772,69 @@ async function removePDF() {
     console.error('Error removing PDF:', error);
   }
 }
+
+// ========================================
+// SUBJECT SELECTION
+// ========================================
+function confirmSubjectSelection() {
+  const dropdown = document.getElementById('subjectDropdown');
+  const customInput = document.getElementById('customSubject');
+  let subject = dropdown.value;
+
+  if (!subject) {
+    alert('Please select a subject');
+    return;
+  }
+
+  // Handle custom subject
+  if (subject === 'Other') {
+    subject = customInput.value.trim();
+    if (!subject) {
+      alert('Please enter a subject name');
+      return;
+    }
+  }
+
+  // Store subject in appState
+  appState.pdfSubject = subject;
+  console.log('📚 Subject selected:', subject);
+
+  // Send subject to backend
+  fetch('http://localhost:9999/pdf/subject', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      fileId: appState.uploadedPDF.fileId,
+      subject: subject
+    })
+  }).catch(err => console.error('Error sending subject:', err));
+
+  // Hide modal and show upload status
+  document.getElementById('subjectModal').classList.add('hidden');
+  document.getElementById('uploadContainer').classList.add('hidden');
+  document.getElementById('uploadStatus').classList.remove('hidden');
+  document.getElementById('uploadedFileName').textContent = appState.uploadedPDF.filename;
+  document.getElementById('uploadedFileInfo').textContent = `${appState.uploadedPDF.totalChunks} study chunks • Subject: ${subject}`;
+
+  // Show question source toggle
+  document.getElementById('questionSourceToggle').classList.remove('hidden');
+}
+
+// Handle "Other" dropdown selection - show custom input
+document.addEventListener('DOMContentLoaded', () => {
+  const dropdown = document.getElementById('subjectDropdown');
+  if (dropdown) {
+    dropdown.addEventListener('change', (e) => {
+      const customInput = document.getElementById('customSubject');
+      if (e.target.value === 'Other') {
+        customInput.classList.remove('hidden');
+        customInput.focus();
+      } else {
+        customInput.classList.add('hidden');
+      }
+    });
+  }
+});
 
 // ========================================
 // QUESTION POLLING FOR GENERATION
