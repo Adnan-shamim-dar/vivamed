@@ -987,9 +987,11 @@ Return ONLY valid JSON (no markdown, no backticks!) in this exact format:
     }
 
     const data = await response.json();
+    console.log('📊 API Response structure:', JSON.stringify(data).substring(0, 300));
     const content = data.choices?.[0]?.message?.content;
 
     if (!content) {
+      console.error('❌ Missing content in API response. Full response:', JSON.stringify(data).substring(0, 500));
       throw new Error('Empty response from API');
     }
 
