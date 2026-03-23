@@ -1374,11 +1374,8 @@ async function startMode(mode) {
     // Load first MCQ question (uses existing endpoint)
     await loadMCQQuestion();
 
-    // Start monitoring and background preload (non-blocking)
-    setTimeout(() => {
-      preloadAIQuestions(mode, 5); // Will fill PDF or AI queue
-      startQueueMonitoring();
-    }, 50);
+    // DON'T start background preload for MCQ - it uses direct endpoint, not queues
+    // startQueueMonitoring() is only for Practice/Exam modes
   } else {
     // NEW: Practice/Exam mode - instant load with background preload
     console.log(`🚀 ${mode.charAt(0).toUpperCase() + mode.slice(1)} Mode: Starting with instant local question load`);
@@ -2500,57 +2497,77 @@ async function loadMCQQuestion() {
     // Determine fileId if exists
     const fileId = appState.currentModeUploadedPDF?.fileId || appState.mcqUploadedPDF?.fileId || null;
 
-    const response = await fetch('http://localhost:9997/mcq-question', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId: appState.sessionId,
-        fileId: fileId,
-        difficulty: 'medium'
-      })
-    });
+    // Retry logic: Try up to 3 times with exponential backoff
+    let lastError;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const response = await fetch('http://localhost:9997/mcq-question', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId: appState.sessionId,
+            fileId: fileId,
+            difficulty: 'medium'
+          })
+        });
 
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-    const mcqData = await response.json();
-    appState.mcqQuestion = mcqData;
-    appState.selectedOption = null;
-    appState.mcqSubmitted = false;
-    appState.mcqCorrectOption = mcqData.correctOption;
-    appState.mcqExplanation = mcqData.explanation;
+        const mcqData = await response.json();
+        appState.mcqQuestion = mcqData;
+        appState.selectedOption = null;
+        appState.mcqSubmitted = false;
+        appState.mcqCorrectOption = mcqData.correctOption;
+        appState.mcqExplanation = mcqData.explanation;
 
-    // Render MCQ question
-    document.getElementById('mcq-question-text').textContent = mcqData.question;
-    document.getElementById('mcq-option-a').textContent = mcqData.options.A;
-    document.getElementById('mcq-option-b').textContent = mcqData.options.B;
-    document.getElementById('mcq-option-c').textContent = mcqData.options.C;
-    document.getElementById('mcq-option-d').textContent = mcqData.options.D;
+        // Render MCQ question
+        document.getElementById('mcq-question-text').textContent = mcqData.question;
+        document.getElementById('mcq-option-a').textContent = mcqData.options.A;
+        document.getElementById('mcq-option-b').textContent = mcqData.options.B;
+        document.getElementById('mcq-option-c').textContent = mcqData.options.C;
+        document.getElementById('mcq-option-d').textContent = mcqData.options.D;
 
-    // Update difficulty badge
-    const diffBadge = document.getElementById('mcq-difficulty-badge');
-    diffBadge.textContent = mcqData.difficulty ? mcqData.difficulty.charAt(0).toUpperCase() + mcqData.difficulty.slice(1) : 'Medium';
-    diffBadge.className = 'inline-block px-3 py-1 rounded-lg text-xs font-semibold';
-    if (mcqData.difficulty === 'easy') {
-      diffBadge.className += ' bg-green-500/20 text-green-300';
-    } else if (mcqData.difficulty === 'hard') {
-      diffBadge.className += ' bg-red-500/20 text-red-300';
-    } else {
-      diffBadge.className += ' bg-yellow-500/20 text-yellow-300';
+        // Update difficulty badge
+        const diffBadge = document.getElementById('mcq-difficulty-badge');
+        diffBadge.textContent = mcqData.difficulty ? mcqData.difficulty.charAt(0).toUpperCase() + mcqData.difficulty.slice(1) : 'Medium';
+        diffBadge.className = 'inline-block px-3 py-1 rounded-lg text-xs font-semibold';
+        if (mcqData.difficulty === 'easy') {
+          diffBadge.className += ' bg-green-500/20 text-green-300';
+        } else if (mcqData.difficulty === 'hard') {
+          diffBadge.className += ' bg-red-500/20 text-red-300';
+        } else {
+          diffBadge.className += ' bg-yellow-500/20 text-yellow-300';
+        }
+
+        // Reset UI
+        document.querySelectorAll('.mcq-option-btn').forEach(btn => {
+          btn.classList.remove('selected', 'correct', 'incorrect');
+          btn.disabled = false;
+        });
+        document.getElementById('mcq-feedback').classList.add('hidden');
+        document.getElementById('mcq-submit-btn').classList.remove('hidden');
+        document.getElementById('mcq-next-btn').classList.add('hidden');
+
+        console.log('✅ MCQ question loaded');
+        return; // Success! Exit retry loop
+      } catch (error) {
+        lastError = error;
+        console.warn(`⚠️ Attempt ${attempt}/3 failed:`, error.message);
+
+        // If not last attempt, wait before retrying
+        if (attempt < 3) {
+          const delayMs = Math.pow(2, attempt) * 500; // 1s, 2s, 4s
+          console.log(`⏳ Retrying in ${delayMs}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+      }
     }
 
-    // Reset UI
-    document.querySelectorAll('.mcq-option-btn').forEach(btn => {
-      btn.classList.remove('selected', 'correct', 'incorrect');
-      btn.disabled = false;
-    });
-    document.getElementById('mcq-feedback').classList.add('hidden');
-    document.getElementById('mcq-submit-btn').classList.remove('hidden');
-    document.getElementById('mcq-next-btn').classList.add('hidden');
-
-    console.log('✅ MCQ question loaded');
+    // All 3 attempts failed
+    throw lastError || new Error('Failed to load MCQ question after 3 attempts');
   } catch (error) {
-    console.error('❌MCQ Load Error:', error.message);
-    alert('Failed to load MCQ. Please try again.');
+    console.error('❌ MCQ Load Error:', error.message);
+    alert('Failed to load MCQ question. Please try again.');
   }
 }
 
