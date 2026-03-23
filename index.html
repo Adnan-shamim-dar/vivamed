@@ -776,7 +776,24 @@ let appState = {
   currentModeUploadedPDF: null,      // Currently active mode's PDF
 
   // ========== NEW: LIBRARY FILTERING ==========
-  libraryQuestionTypeFilter: 'all'   // 'all', 'long-form', or 'mcq'
+  libraryQuestionTypeFilter: 'all',   // 'all', 'long-form', or 'mcq'
+
+  // ========== NEW: ZERO-LATENCY MULTI-QUEUE SYSTEM ==========
+  questionQueues: {
+    pdf: [],        // Questions from PDF (priority 1)
+    ai: [],         // Questions from AI generation (priority 2)
+    local: []       // Questions from library/cache (priority 3)
+  },
+  queueStatus: {
+    pdf: { loading: false, failed: false, exhausted: false },
+    ai: { loading: false, failed: false, exhausted: false },
+    local: { loading: false, failed: false, exhausted: false }
+  },
+  currentQuestionSource: 'local', // 'pdf', 'ai', or 'local'
+  queueMinimumThreshold: 3,       // Keep at least 3 questions queued
+  queueMaximumSize: 10,           // Max 10 questions per queue
+  preloadInProgress: false,       // Prevent duplicate preload calls
+  queueMonitorInterval: null      // Store interval ID for monitoring
 };
 
 // ========================================
@@ -1351,37 +1368,59 @@ async function startMode(mode) {
 
   // Fetch questions/Load MCQ
   if (mode === 'mcq') {
-    // NEW: MCQ mode - load first MCQ question
+    // NEW: MCQ mode - instant load with background preload
+    console.log('🚀 MCQ Mode: Starting MCQ questions');
+
+    // Load first MCQ question (uses existing endpoint)
     await loadMCQQuestion();
+
+    // Start monitoring and background preload (non-blocking)
+    setTimeout(() => {
+      preloadAIQuestions(mode, 5); // Will fill PDF or AI queue
+      startQueueMonitoring();
+    }, 50);
   } else {
-    // Existing exam/practice mode logic
-    const questionsToFetch = mode === 'exam' ? appState.totalQuestions : 3;
-    const fetchedQuestions = await fetchQuestionsFromServer(questionsToFetch);
+    // NEW: Practice/Exam mode - instant load with background preload
+    console.log(`🚀 ${mode.charAt(0).toUpperCase() + mode.slice(1)} Mode: Starting with instant local question load`);
 
-    if (fetchedQuestions.length > 0) {
-      appState.questions = fetchedQuestions;
+    // STEP 1: Immediately preload local questions (< 100ms)
+    const localLoaded = await preloadLocalQuestions(mode, 5);
+    console.log(`✅ Pre-loaded ${localLoaded} local questions`);
 
-      // Store metadata
-      fetchedQuestions.forEach((q) => {
-        appState.sources.push(q.source || 'AI');
+    // STEP 2: Build initial questions array from queue (instant display)
+    const initialLocalCount = 3;  // Get 3 local questions for immediate display
+    appState.questions = [];
+    for (let i = 0; i < initialLocalCount && appState.questionQueues.local.length > 0; i++) {
+      const q = getNextQuestion();
+      if (q) {
+        appState.questions.push(q);
+        appState.sources.push(q.source || 'local');
         appState.chunkIndexes.push(q.chunkIndex || null);
         appState.pdfBasedFlags.push(q.pdfBased || false);
         appState.chunkTypes.push(q.chunkType || 'generic');
         appState.totalChunksArray.push(q.totalChunks || null);
         appState.pdfFilenames.push(q.pdfFilename || null);
-        appState.difficulties.push(q.difficulty || 'generic');
-        appState.difficultyEmojis.push(q.difficultyEmoji || '');
-      });
-
-      // Start polling for background generation if mode is practice (need more questions later)
-      if (mode === 'practice' && appState.uploadedPDF) {
-        appState.isPollingForNewQuestions = true;
-        startQuestionPolling(appState.uploadedPDF.fileId);
+        appState.difficulties.push(q.difficulty || 'medium');
+        appState.difficultyEmojis.push(getEmojiForDifficulty(q.difficulty) || '');
       }
+    }
 
+    if (appState.questions.length > 0) {
+      // STEP 3: Display first question immediately
       loadQuestion();
       startTimer();
+
+      // STEP 4: Start background preload of AI and refill local (non-blocking)
+      setTimeout(() => {
+        appState.selectedSubject = appState.pdfSubject || '';  // Use PDF subject if available
+        preloadAIQuestions(mode, 5);  // Background AI generation
+        startQueueMonitoring();        // Monitor and refill queues
+      }, 100);
     } else {
+      alert('Unable to load questions. Please try again.');
+    }
+  }
+}
       alert('Failed to fetch questions. Please try again.');
       backToMenu();
     }
@@ -1505,6 +1544,208 @@ async function fetchQuestionsFromServer(count) {
 }
 
 // ========================================
+// ZERO-LATENCY MULTI-QUEUE PRELOAD FUNCTIONS
+// ========================================
+
+/**
+ * Get emoji for difficulty level
+ */
+function getEmojiForDifficulty(difficulty) {
+  const emojiMap = {
+    easy: '🟢',
+    medium: '🟡',
+    hard: '🔴'
+  };
+  return emojiMap[difficulty] || '🟡';
+}
+
+/**
+ * Preload questions from local library (fastest source)
+ * @param {string} mode - The current mode (practice, exam, mcq)
+ * @param {number} count - How many questions to load
+ */
+async function preloadLocalQuestions(mode, count = 5) {
+  try {
+    if (appState.queueStatus.local.loading) return; // Already loading
+    if (appState.questionQueues.local.length >= appState.queueMaximumSize) return; // Queue full
+
+    appState.queueStatus.local.loading = true;
+
+    // Determine question type based on mode
+    const questionType = mode === 'mcq' ? 'mcq' : 'long-form';
+
+    // Fetch from library/questions endpoint
+    const params = new URLSearchParams({
+      limit: count,
+      questionType: questionType
+    });
+
+    const response = await fetch(`http://localhost:9997/library/questions?${params}`);
+    const data = await response.json();
+
+    if (data.success && data.questions.length > 0) {
+      // Format questions to match queue structure
+      const formatted = data.questions.map(q => ({
+        ...q,
+        source: 'local',
+        pdfBased: false,
+        difficulty: q.difficulty || 'medium'
+      }));
+
+      // Add to queue (don't exceed maximum)
+      const available = appState.queueMaximumSize - appState.questionQueues.local.length;
+      appState.questionQueues.local.push(...formatted.slice(0, available));
+
+      console.log(`✅ Loaded ${formatted.length} local questions. Queue size: ${appState.questionQueues.local.length}`);
+      appState.queueStatus.local.loading = false;
+      return formatted.length;
+    }
+  } catch (error) {
+    console.error('❌ Local preload failed:', error);
+    appState.queueStatus.local.loading = false;
+  }
+
+  return 0;
+}
+
+/**
+ * Preload questions from AI in background (non-blocking)
+ * @param {string} mode - The current mode
+ * @param {number} count - How many questions to generate
+ */
+async function preloadAIQuestions(mode, count = 5) {
+  try {
+    // Don't preload if already loading or queue is full
+    if (appState.queueStatus.ai.loading) return;
+    if (appState.questionQueues.ai.length >= appState.queueMaximumSize) return;
+
+    appState.queueStatus.ai.loading = true;
+
+    // Try batch endpoint
+    const response = await fetch('http://localhost:9997/questions/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: appState.sessionId,
+        count: count,
+        source: appState.uploadedPDF?.fileId ? 'pdf' : 'ai',
+        fileId: appState.uploadedPDF?.fileId || null
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.success && data.questions.length > 0) {
+      const formatted = data.questions.map(q => ({
+        ...q,
+        source: appState.uploadedPDF?.fileId ? 'pdf' : 'ai',
+        pdfBased: !!appState.uploadedPDF?.fileId
+      }));
+
+      // Add to appropriate queue based on PDF availability
+      const targetQueue = appState.uploadedPDF?.fileId ? 'pdf' : 'ai';
+      const available = appState.queueMaximumSize - appState.questionQueues[targetQueue].length;
+      appState.questionQueues[targetQueue].push(...formatted.slice(0, available));
+
+      console.log(`✅ Loaded ${formatted.length} ${targetQueue} questions. Queue size: ${appState.questionQueues[targetQueue].length}`);
+      appState.queueStatus.ai.loading = false;
+      return formatted.length;
+    }
+  } catch (error) {
+    console.warn('⚠️ AI preload failed:', error);
+    appState.queueStatus.ai.loading = false;
+    appState.queueStatus.ai.failed = true;
+  }
+
+  return 0;
+}
+
+/**
+ * Get next question from highest priority available queue
+ * Priority: PDF > AI > Local
+ * Triggers background preload when queue gets low
+ */
+function getNextQuestion() {
+  // Check PDF queue first (highest priority)
+  if (appState.questionQueues.pdf.length > 0) {
+    const question = appState.questionQueues.pdf.shift();
+    appState.currentQuestionSource = 'pdf';
+
+    // Preload more if running low
+    if (appState.questionQueues.pdf.length < appState.queueMinimumThreshold) {
+      preloadAIQuestions(appState.mode, 3); // Will fill PDF queue
+    }
+
+    return question;
+  }
+
+  // Check AI queue (medium priority)
+  if (appState.questionQueues.ai.length > 0) {
+    const question = appState.questionQueues.ai.shift();
+    appState.currentQuestionSource = 'ai';
+
+    // Preload more if running low
+    if (appState.questionQueues.ai.length < appState.queueMinimumThreshold) {
+      preloadAIQuestions(appState.mode, 3);
+    }
+
+    return question;
+  }
+
+  // Fall back to local queue (always available)
+  if (appState.questionQueues.local.length > 0) {
+    const question = appState.questionQueues.local.shift();
+    appState.currentQuestionSource = 'local';
+
+    // Preload more if running low
+    if (appState.questionQueues.local.length < appState.queueMinimumThreshold) {
+      preloadLocalQuestions(appState.mode, 3);
+    }
+
+    return question;
+  }
+
+  // Emergency fallback (shouldn't happen)
+  console.warn('⚠️ All question queues empty');
+  return null;
+}
+
+/**
+ * Monitor and refill question queues as user progresses
+ * Runs periodically to keep queues at minimum threshold
+ */
+function startQueueMonitoring() {
+  // Clear any existing interval
+  if (appState.queueMonitorInterval) {
+    clearInterval(appState.queueMonitorInterval);
+  }
+
+  appState.queueMonitorInterval = setInterval(() => {
+    // Only monitor if mode is active
+    if (!appState.mode) {
+      clearInterval(appState.queueMonitorInterval);
+      return;
+    }
+
+    const pdfLen = appState.questionQueues.pdf.length;
+    const aiLen = appState.questionQueues.ai.length;
+    const localLen = appState.questionQueues.local.length;
+
+    console.log(`📊 Queue Status - PDF: ${pdfLen}/${appState.queueMaximumSize}, AI: ${aiLen}/${appState.queueMaximumSize}, Local: ${localLen}/${appState.queueMaximumSize}`);
+
+    // Preload local first (fastest)
+    if (localLen < appState.queueMinimumThreshold && !appState.queueStatus.local.loading) {
+      preloadLocalQuestions(appState.mode, 3);
+    }
+
+    // Preload AI second (fills PDF queue if PDF available)
+    if (aiLen < appState.queueMinimumThreshold && !appState.queueStatus.ai.loading) {
+      preloadAIQuestions(appState.mode, 3);
+    }
+  }, 2000); // Check every 2 seconds
+}
+
+// ========================================
 // QUESTION LOADING & DISPLAY
 // ========================================
 function loadQuestion() {
@@ -1538,10 +1779,20 @@ function loadQuestion() {
 
   document.getElementById('question').textContent = q.question;
   document.getElementById('answer').value = appState.answers[appState.currentQuestionIndex] || '';
+
+  // Get source display based on question source
+  const sourceMap = {
+    pdf: '📄 PDF',
+    ai: '🤖 AI',
+    local: '📚 Library'
+  };
+  const currentSource = appState.sources[appState.currentQuestionIndex] || 'local';
+  const sourceDisplay = sourceMap[currentSource] || '📚 Local';
+
   document.getElementById('sourceBadge').textContent =
     (appState.difficultyEmojis[appState.currentQuestionIndex] || '') +
     ' ' +
-    (appState.pdfBasedFlags[appState.currentQuestionIndex] ? '📄 PDF-Based' : '🤖 AI');
+    sourceDisplay;
 
   updateCharCount();
 
@@ -1921,18 +2172,33 @@ function nextQuestion() {
 
   appState.currentQuestionIndex += 1;
 
+  // If we've reached the end of loaded questions, get from queue
   if (appState.currentQuestionIndex >= appState.questions.length) {
-    if (appState.mode === 'practice') {
-      // Fetch more questions in practice mode
-      if (!appState.isPollingForNewQuestions && appState.uploadedPDF) {
-        appState.isPollingForNewQuestions = true;
-        startQuestionPolling(appState.uploadedPDF.fileId);
-      }
-      alert('Loading next question...');
-      return;
+    // Try to get next question from queue
+    const nextQ = getNextQuestion();
+
+    if (nextQ) {
+      // Add to questions array
+      appState.questions.push(nextQ);
+      appState.sources.push(nextQ.source || 'local');
+      appState.chunkIndexes.push(nextQ.chunkIndex || null);
+      appState.pdfBasedFlags.push(nextQ.pdfBased || false);
+      appState.chunkTypes.push(nextQ.chunkType || 'generic');
+      appState.totalChunksArray.push(nextQ.totalChunks || null);
+      appState.pdfFilenames.push(nextQ.pdfFilename || null);
+      appState.difficulties.push(nextQ.difficulty || 'medium');
+      appState.difficultyEmojis.push(getEmojiForDifficulty(nextQ.difficulty) || '');
+
+      console.log(`📥 Loaded next question from ${appState.currentQuestionSource} queue`);
     } else {
-      showResults();
-      return;
+      // No questions available
+      if (appState.mode === 'practice') {
+        alert('⏳ Generating more questions...');
+        return;
+      } else {
+        showResults();
+        return;
+      }
     }
   }
 

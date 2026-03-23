@@ -1999,6 +1999,118 @@ app.get("/question", async (req, res) => {
   }
 });
 
+// POST: Batch question generation (for zero-latency multi-queue preloading)
+app.post("/questions/batch", async (req, res) => {
+  try {
+    const { sessionId, count = 5, source = 'ai', fileId } = req.body;
+
+    // Validate count
+    const batchSize = Math.min(Math.max(count, 1), 20); // Limit between 1 and 20
+
+    if (!OPENROUTER_API_KEY) {
+      // No API key: return local questions
+      const localQuestions = getRandomQuestions(batchSize).map(q => ({
+        question: q,
+        source: 'local',
+        difficulty: 'medium',
+        pdfBased: false,
+        chunkIndex: null,
+        totalChunks: null,
+        chunkType: null,
+        pdfFilename: null
+      }));
+
+      return res.json({
+        success: true,
+        questions: localQuestions,
+        totalAvailable: localQuestions.length
+      });
+    }
+
+    // Generate batch of questions
+    const questions = [];
+
+    // If PDF-based request, use PDF context
+    if (fileId && sessionId) {
+      for (let i = 0; i < batchSize; i++) {
+        try {
+          const q = await generatePDFBasedQuestion(sessionId, fileId);
+          questions.push({
+            ...q,
+            source: 'pdf',
+            pdfBased: true
+          });
+
+          // Small delay between requests to avoid API rate limiting
+          if (i < batchSize - 1) {
+            await new Promise(resolve => setTimeout(resolve, 150));
+          }
+        } catch (error) {
+          console.warn(`⚠️ PDF question ${i + 1} failed:`, error.message);
+          // Add fallback local question if PDF generation fails
+          const localQ = getRandomQuestions(1)[0];
+          questions.push({
+            question: localQ.question,
+            source: 'local',
+            difficulty: 'medium',
+            pdfBased: false,
+            chunkIndex: null,
+            totalChunks: null,
+            chunkType: null,
+            pdfFilename: null
+          });
+        }
+      }
+    } else {
+      // Generate generic AI questions
+      for (let i = 0; i < batchSize; i++) {
+        try {
+          const q = await generateAIQuestion(sessionId);
+          questions.push({
+            ...q,
+            source: 'ai',
+            pdfBased: false
+          });
+
+          // Small delay between requests
+          if (i < batchSize - 1) {
+            await new Promise(resolve => setTimeout(resolve, 150));
+          }
+        } catch (error) {
+          console.warn(`⚠️ AI question ${i + 1} failed:`, error.message);
+          // Add fallback local question if AI generation fails
+          const localQ = getRandomQuestions(1)[0];
+          questions.push({
+            question: localQ.question,
+            source: 'local',
+            difficulty: 'medium',
+            pdfBased: false,
+            chunkIndex: null,
+            totalChunks: null,
+            chunkType: null,
+            pdfFilename: null
+          });
+        }
+      }
+    }
+
+    console.log(`📦 Batch: Generated ${questions.length} questions (${source})`);
+
+    res.json({
+      success: true,
+      questions: questions,
+      totalAvailable: questions.length
+    });
+  } catch (error) {
+    console.error('❌ Batch generation error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      questions: []
+    });
+  }
+});
+
 // POST: Evaluate answer
 app.post("/evaluate", async (req, res) => {
   const { question, answer } = req.body;
