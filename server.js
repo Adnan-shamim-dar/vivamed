@@ -63,7 +63,7 @@ const AI_MODEL_CONFIG = {
 console.log(`🤖 AI Model: ${SELECTED_MODEL}`);
 
 // Helper function to make OpenRouter API calls with current model configuration
-async function callOpenRouterAPI(prompt, configKey = CONFIG_KEYS.QUESTION_GENERATION) {
+async function callOpenRouterAPI(prompt, configKey = CONFIG_KEYS.QUESTION_GENERATION, timeoutMs = 30000) {
   if (!OPENROUTER_API_KEY) {
     throw new Error("OPENROUTER_API_KEY not set");
   }
@@ -76,32 +76,47 @@ async function callOpenRouterAPI(prompt, configKey = CONFIG_KEYS.QUESTION_GENERA
 
   const config = AI_MODEL_CONFIG[configKey];
 
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: config.model,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: config.temperature,
-      max_tokens: config.maxTokens
-    })
-  });
+  // Create abort controller for timeout
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`API error ${response.status}: ${err.substring(0, 200)}`);
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: config.model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: config.temperature,
+        max_tokens: config.maxTokens
+      }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutHandle);
+
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`API error ${response.status}: ${err.substring(0, 200)}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error('Empty response from API');
+    }
+
+    return content;
+  } catch (error) {
+    clearTimeout(timeoutHandle);
+    if (error.name === 'AbortError') {
+      throw new Error(`API request timeout after ${timeoutMs}ms`);
+    }
+    throw error;
   }
-
-  const data = await response.json();
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error('Empty response from API');
-  }
-
-  return content;
 }
 
 // Helper to avoid redundant timeout code
@@ -994,18 +1009,25 @@ function getFallbackMCQ(difficulty = 'medium') {
   };
 }
 
-// Generate PDF-based MCQ question
+// Generate PDF-based MCQ question (with retry logic)
 async function generatePDFBasedMCQQuestion(sessionId, fileId, difficulty = 'medium') {
+  const MAX_RETRIES = 2;
+  let lastError;
+  let chunk;
+
   try {
-    // Get next chunk with rotation
-    const chunk = await getNextChunk(sessionId, fileId);
-
+    // Get next chunk ONCE before retry loop
+    chunk = await getNextChunk(sessionId, fileId);
     console.log(`📄 Generating MCQ from chunk ${chunk.chunkIndex} (${difficulty}, ${chunk.wordCount} words)...`);
+  } catch (e) {
+    console.error('❌ Failed to get PDF chunk:', e.message);
+    throw e;
+  }
 
-    // Use shared difficulty guidance constant (DRY principle)
-    const difficultyGuidance = MCQ_DIFFICULTY_GUIDANCE[difficulty] || MCQ_DIFFICULTY_GUIDANCE.medium;
+  // Use shared difficulty guidance constant (DRY principle)
+  const difficultyGuidance = MCQ_DIFFICULTY_GUIDANCE[difficulty] || MCQ_DIFFICULTY_GUIDANCE.medium;
 
-    const prompt = `You are a medical examiner creating MCQ from study material.
+  const prompt = `You are a medical examiner creating MCQ from study material.
 
 CONTEXT FROM STUDY MATERIAL:
 """
@@ -1035,54 +1057,66 @@ Return ONLY valid JSON (no markdown!) in this exact format:
   "explanation": "why this is correct based on context"
 }`;
 
-    // Call API via helper
-    const content = await callOpenRouterAPI(prompt, CONFIG_KEYS.MCQ_GENERATION);
-
-    if (!content) {
-      throw new Error('Empty response from API');
-    }
-
-    // Parse JSON response
-    let mcqData;
+  // Retry loop with exponential backoff
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      mcqData = JSON.parse(content);
-    } catch (e) {
-      console.error('❌ Failed to parse PDF MCQ response:', content.substring(0, 200));
-      throw new Error('Invalid JSON from API');
+      const content = await callOpenRouterAPI(prompt, CONFIG_KEYS.MCQ_GENERATION);
+
+      if (!content) {
+        throw new Error('Empty response from API');
+      }
+
+      // Parse JSON response
+      let mcqData;
+      try {
+        mcqData = JSON.parse(content);
+      } catch (e) {
+        console.error('❌ Failed to parse PDF MCQ response:', content.substring(0, 200));
+        throw new Error('Invalid JSON from API');
+      }
+
+      // Get PDF metadata
+      const metadata = await new Promise((resolve, reject) => {
+        db.get(
+          'SELECT totalChunks, originalFilename FROM uploaded_files WHERE fileId = ?',
+          [fileId],
+          (err, row) => {
+            if (err) reject(err);
+            else resolve(row || {});
+          }
+        );
+      });
+
+      console.log('✅ PDF MCQ Generated:', mcqData.question.substring(0, 80) + '...');
+
+      return {
+        question: mcqData.question,
+        options: mcqData.options,
+        correctOption: mcqData.correctOption,
+        explanation: mcqData.explanation,
+        chunkIndex: chunk.chunkIndex,
+        totalChunks: metadata.totalChunks || 0,
+        chunkType: chunk.chunkType,
+        pdfFilename: metadata.originalFilename || 'Unknown PDF',
+        difficulty: difficulty,
+        questionType: 'mcq',
+        pdfBased: true,
+        source: 'pdf-ai'
+      };
+    } catch (error) {
+      lastError = error;
+      console.error(`❌ PDF MCQ Generation Attempt ${attempt}/${MAX_RETRIES} Failed:`, error.message);
+      if (attempt < MAX_RETRIES) {
+        const delayMs = 1000 * attempt; // 1s, 2s
+        console.log(`⏳ Retrying in ${delayMs}ms...`);
+        await delay(delayMs);
+      }
     }
-
-    // Get PDF metadata
-    const metadata = await new Promise((resolve, reject) => {
-      db.get(
-        'SELECT totalChunks, originalFilename FROM uploaded_files WHERE fileId = ?',
-        [fileId],
-        (err, row) => {
-          if (err) reject(err);
-          else resolve(row || {});
-        }
-      );
-    });
-
-    console.log('✅ PDF MCQ Generated:', mcqData.question.substring(0, 80) + '...');
-
-    return {
-      question: mcqData.question,
-      options: mcqData.options,
-      correctOption: mcqData.correctOption,
-      explanation: mcqData.explanation,
-      chunkIndex: chunk.chunkIndex,
-      totalChunks: metadata.totalChunks || 0,
-      chunkType: chunk.chunkType,
-      pdfFilename: metadata.originalFilename || 'Unknown PDF',
-      difficulty: difficulty,
-      questionType: 'mcq',
-      pdfBased: true,
-      source: 'pdf-ai'
-    };
-  } catch (error) {
-    console.error('❌ PDF MCQ Generation Failed:', error.message);
-    throw error;
   }
+
+  // All retries failed
+  console.warn('⚠️ All API retries failed for PDF MCQ, returning fallback');
+  throw lastError;
 }
 
 // Generate multiple MCQ questions (6-20) with difficulty levels
@@ -2201,43 +2235,37 @@ app.post("/mcq-question", async (req, res) => {
 
     if (!OPENROUTER_API_KEY) {
       console.warn('⚠️ No API key - returning fallback MCQ');
-      const fakeMCQ = {
-        question: "What is a multiple choice question?",
-        options: { A: "A question with options", B: "A question", C: "An exam", D: "A test" },
-        correctOption: "A",
-        explanation: "MCQ has multiple choice options.",
-        difficulty: diff,
-        questionType: 'mcq',
-        pdfBased: false,
-        source: 'fallback'
-      };
-      return res.json(fakeMCQ);
+      const fallback = getFallbackMCQ(diff);
+      return res.json(fallback);
     }
 
     let mcqQuestion;
 
-    // Determine if this is PDF-based or generic MCQ
-    if (fileId) {
-      // PDF-based MCQ
-      console.log('📄 PDF-based MCQ mode');
-      mcqQuestion = await generatePDFBasedMCQQuestion(sessionId, fileId, diff);
-    } else {
-      // Generic MCQ
-      console.log('🤖 Generic MCQ mode');
-      mcqQuestion = await generateGenericAIMCQQuestion(diff);
-    }
+    try {
+      // Determine if this is PDF-based or generic MCQ
+      if (fileId) {
+        // PDF-based MCQ
+        console.log('📄 PDF-based MCQ mode');
+        mcqQuestion = await generatePDFBasedMCQQuestion(sessionId, fileId, diff);
+      } else {
+        // Generic MCQ
+        console.log('🤖 Generic MCQ mode');
+        mcqQuestion = await generateGenericAIMCQQuestion(diff);
+      }
 
-    res.json(mcqQuestion);
+      return res.json(mcqQuestion);
+    } catch (generationError) {
+      // Generation failed - gracefully fall back to fallback pool
+      console.warn(`⚠️ MCQ generation failed (${generationError.message}), using fallback`);
+      const fallback = getFallbackMCQ(diff);
+      return res.json(fallback);
+    }
   } catch (error) {
-    console.error('❌ MCQ Generation Error:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      question: "Failed to generate MCQ. Please try again.",
-      options: { A: "Error", B: "Retry", C: "Try again", D: "Refresh" },
-      correctOption: "A",
-      explanation: "An error occurred generating the MCQ."
-    });
+    console.error('❌ MCQ Endpoint Error:', error.message);
+    // Even if something else goes wrong, try to return a fallback
+    const diff = req.body?.difficulty || 'medium';
+    const fallback = getFallbackMCQ(diff);
+    return res.json(fallback);
   }
 });
 
