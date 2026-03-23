@@ -964,13 +964,6 @@ let appState = {
   preloadInProgress: false,       // Prevent duplicate preload calls
   queueMonitorInterval: null,     // Store interval ID for monitoring
 
-  // ========== NEW: GLOBAL PAGE LOAD PRELOADING ==========
-  globalPreloadComplete: false,   // Track if initial page load preload done
-  practicePreloadCache: [],       // Practice mode preloaded questions
-  examPreloadCache: [],           // Exam mode preloaded questions
-  practicePreloadInProgress: false,
-  examPreloadInProgress: false
-
   // ========== NEW: MCQ LEARNING ENGINE (Duolingo-style) ==========
   mcqPerformance: {
     correctQuestions: [],         // Questions answered correctly
@@ -985,167 +978,6 @@ let appState = {
 };
 
 // ========================================
-// ==== GLOBAL PAGE LOAD PRELOADING ====
-// ========================================
-/**
- * Preload questions for all modes when page loads
- * This ensures instant first question loading for MCQ, Practice, and Exam
- */
-async function globalPreloadAllModes() {
-  console.log('🚀 Starting global preload for all modes...');
-
-  // Preload in parallel for MCQ, Practice, and Exam
-  const promises = [
-    preloadMCQQuestionsGlobal(),
-    preloadPracticeQuestionsGlobal(),
-    preloadExamQuestionsGlobal()
-  ];
-
-  try {
-    await Promise.all(promises);
-    appState.globalPreloadComplete = true;
-    console.log('✅ Global preload complete! All modes ready.');
-  } catch (error) {
-    console.warn('⚠️ Global preload had issues, but will recover:', error.message);
-    appState.globalPreloadComplete = true; // Mark as complete anyway
-  }
-}
-
-/**
- * Preload MCQ questions on page load (parallel fetch)
- */
-async function preloadMCQQuestionsGlobal() {
-  if (appState.mcqPreloadInProgress) return;
-  appState.mcqPreloadInProgress = true;
-
-  try {
-    console.log('🔵 Preloading MCQ questions (5 in parallel)...');
-    const fetchPromises = Array(5).fill(null).map((_, i) =>
-      fetch('http://localhost:9997/mcq-question', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: 'preload',
-          difficulty: ['easy', 'medium', 'hard', 'medium', 'hard'][i % 5]
-        })
-      }).then(r => r.ok ? r.json() : null)
-        .catch(e => {
-          console.warn('⚠️ MCQ preload failed:', e.message);
-          return null;
-        })
-    );
-
-    const results = await Promise.all(fetchPromises);
-    const loaded = results.filter(r => r !== null);
-    appState.mcqPreloadCache = loaded;
-    console.log(`✅ MCQ preload: ${loaded.length}/5 questions ready`);
-  } catch (error) {
-    console.warn('⚠️ MCQ preload error:', error.message);
-  } finally {
-    appState.mcqPreloadInProgress = false;
-  }
-}
-
-/**
- * Preload Practice mode questions on page load
- */
-async function preloadPracticeQuestionsGlobal() {
-  if (appState.practicePreloadInProgress) return;
-  appState.practicePreloadInProgress = true;
-
-  try {
-    console.log('🟢 Preloading Practice questions (3 in parallel)...');
-    const fetchPromises = Array(3).fill(null).map((_, i) =>
-      fetch('http://localhost:9997/question', {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
-      }).then(r => r.ok ? r.json() : null)
-        .catch(e => {
-          console.warn('⚠️ Practice preload failed:', e.message);
-          return null;
-        })
-    );
-
-    const results = await Promise.all(fetchPromises);
-    const loaded = results.filter(r => r !== null);
-    appState.practicePreloadCache = loaded;
-    console.log(`✅ Practice preload: ${loaded.length}/3 questions ready`);
-  } catch (error) {
-    console.warn('⚠️ Practice preload error:', error.message);
-  } finally {
-    appState.practicePreloadInProgress = false;
-  }
-}
-
-/**
- * Preload Exam mode questions on page load
- */
-async function preloadExamQuestionsGlobal() {
-  if (appState.examPreloadInProgress) return;
-  appState.examPreloadInProgress = true;
-
-  try {
-    console.log('🔴 Preloading Exam questions (3 in parallel)...');
-    const fetchPromises = Array(3).fill(null).map((_, i) =>
-      fetch('http://localhost:9997/question', {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
-      }).then(r => r.ok ? r.json() : null)
-        .catch(e => {
-          console.warn('⚠️ Exam preload failed:', e.message);
-          return null;
-        })
-    );
-
-    const results = await Promise.all(fetchPromises);
-    const loaded = results.filter(r => r !== null);
-    appState.examPreloadCache = loaded;
-    console.log(`✅ Exam preload: ${loaded.length}/3 questions ready`);
-  } catch (error) {
-    console.warn('⚠️ Exam preload error:', error.message);
-  } finally {
-    appState.examPreloadInProgress = false;
-  }
-}
-
-/**
- * Get question from preloaded cache or fetch on-demand
- */
-async function getQuestionFromCache(mode) {
-  if (mode === 'mcq' && appState.mcqPreloadCache.length > 0) {
-    const q = appState.mcqPreloadCache.shift();
-    console.log('⚡ MCQ: Using preloaded question (instant!)');
-    // Refill in background
-    if (appState.mcqPreloadCache.length < 2) {
-      preloadMCQQuestions(3, false);
-    }
-    return q;
-  }
-
-  if (mode === 'practice' && appState.practicePreloadCache.length > 0) {
-    const q = appState.practicePreloadCache.shift();
-    console.log('⚡ Practice: Using preloaded question (instant!)');
-    // Refill in background
-    if (appState.practicePreloadCache.length < 2) {
-      preloadPracticeQuestionsGlobal();
-    }
-    return q;
-  }
-
-  if (mode === 'exam' && appState.examPreloadCache.length > 0) {
-    const q = appState.examPreloadCache.shift();
-    console.log('⚡ Exam: Using preloaded question (instant!)');
-    // Refill in background
-    if (appState.examPreloadCache.length < 2) {
-      preloadExamQuestionsGlobal();
-    }
-    return q;
-  }
-
-  return null; // No preloaded question available
-}
-
-// ========================================
 // ==== NEW: BROWSER HISTORY MANAGEMENT ====
 // ========================================
 const historyState = {
@@ -1153,14 +985,10 @@ const historyState = {
   examMode: null // 'practice' or 'exam'
 };
 
-// Initialize history & start global preload
+// Initialize history
 window.addEventListener('DOMContentLoaded', () => {
   // Set initial state
   window.history.replaceState({ page: 'dashboard' }, '', window.location.href);
-
-  // Start global preload of all modes (non-blocking)
-  console.log('📥 Page loaded - beginning global preload of all modes...');
-  globalPreloadAllModes(); // Don't await - let it run in background
 });
 
 // Handle back button
@@ -1724,13 +1552,9 @@ async function startMode(mode) {
     // NEW: MCQ mode - instant load with background preload
     console.log('🚀 MCQ Mode: Starting MCQ questions with learning engine');
 
-    // PRELOAD OPTIMIZATION: Use globally preloaded questions if available
-    if (appState.mcqPreloadCache.length === 0 && appState.globalPreloadComplete) {
-      console.log('✨ Using globally preloaded MCQ questions (instant!)');
-      // Cache already populated by global preload
-    } else if (appState.mcqPreloadCache.length === 0) {
-      console.log('⏳ Global preload not ready yet, will use initial parallel preload');
-    }
+    // Initialize MCQ preload cache
+    appState.mcqPreloadCache = [];
+    appState.mcqPreloadInProgress = false;
 
     // NEW: Load previous performance data from server (for learning engine)
     try {
@@ -1753,11 +1577,8 @@ async function startMode(mode) {
       // Continue anyway - not critical
     }
 
-    // Only do parallel preload if we don't already have preloaded questions
-    if (appState.mcqPreloadCache.length < 3) {
-      console.log('⚡ Starting parallel preload for MCQ...');
-      preloadMCQQuestions(3, true);
-    }
+    // START PRELOADING IN BACKGROUND (parallel for initial batch, much faster!)
+    preloadMCQQuestions(3, true);
 
     // Load first MCQ question (uses existing endpoint)
     await loadMCQQuestion();
@@ -1768,49 +1589,28 @@ async function startMode(mode) {
     }, 100);
   } else {
     // NEW: Practice/Exam mode - instant load with background preload
-    console.log(`🚀 ${mode.charAt(0).toUpperCase() + mode.slice(1)} Mode: Starting with instant question load`);
+    console.log(`🚀 ${mode.charAt(0).toUpperCase() + mode.slice(1)} Mode: Starting with instant local question load`);
 
-    // OPTIMIZATION: Use globally preloaded questions if available
-    if (mode === 'practice' && appState.practicePreloadCache.length > 0) {
-      console.log(`✨ Using globally preloaded ${mode} questions (${appState.practicePreloadCache.length} ready)!`);
-      appState.questions = [...appState.practicePreloadCache];
-      appState.practicePreloadCache = []; // Clear cache since we're using them
-    } else if (mode === 'exam' && appState.examPreloadCache.length > 0) {
-      console.log(`✨ Using globally preloaded ${mode} questions (${appState.examPreloadCache.length} ready)!`);
-      appState.questions = [...appState.examPreloadCache];
-      appState.examPreloadCache = []; // Clear cache since we're using them
-    }
+    // STEP 1: Immediately preload local questions (< 100ms)
+    const localLoaded = await preloadLocalQuestions(mode, 5);
+    console.log(`✅ Pre-loaded ${localLoaded} local questions`);
 
-    // If not using preloaded, load from local queue
-    if (appState.questions.length === 0) {
-      console.log('📥 No preloaded questions, loading from local queue...');
-
-      // STEP 1: Immediately preload local questions (< 100ms)
-      const localLoaded = await preloadLocalQuestions(mode, 5);
-      console.log(`✅ Pre-loaded ${localLoaded} local questions`);
-
-      // STEP 2: Build initial questions array from queue (instant display)
-      const initialLocalCount = 12;  // Load 12 questions to prevent running out during queue refill
-      appState.questions = [];
-      for (let i = 0; i < initialLocalCount && appState.questionQueues.local.length > 0; i++) {
-        const q = getNextQuestion();
-        if (q) {
-          appState.questions.push(q);
-        }
+    // STEP 2: Build initial questions array from queue (instant display)
+    const initialLocalCount = 12;  // Load 12 questions to prevent running out during queue refill
+    appState.questions = [];
+    for (let i = 0; i < initialLocalCount && appState.questionQueues.local.length > 0; i++) {
+      const q = getNextQuestion();
+      if (q) {
+        appState.questions.push(q);
+        appState.sources.push(q.source || 'local');
+        appState.chunkIndexes.push(q.chunkIndex || null);
+        appState.pdfBasedFlags.push(q.pdfBased || false);
+        appState.chunkTypes.push(q.chunkType || 'generic');
+        appState.totalChunksArray.push(q.totalChunks || null);
+        appState.pdfFilenames.push(q.pdfFilename || null);
+        appState.difficulties.push(q.difficulty || 'medium');
+        appState.difficultyEmojis.push(getEmojiForDifficulty(q.difficulty) || '');
       }
-    }
-
-    // Update metadata for all questions
-    for (let i = 0; i < appState.questions.length; i++) {
-      const q = appState.questions[i];
-      appState.sources.push(q.source || 'local');
-      appState.chunkIndexes.push(q.chunkIndex || null);
-      appState.pdfBasedFlags.push(q.pdfBased || false);
-      appState.chunkTypes.push(q.chunkType || 'generic');
-      appState.totalChunksArray.push(q.totalChunks || null);
-      appState.pdfFilenames.push(q.pdfFilename || null);
-      appState.difficulties.push(q.difficulty || 'medium');
-      appState.difficultyEmojis.push(getEmojiForDifficulty(q.difficulty) || '');
     }
 
     if (appState.questions.length > 0) {
@@ -3006,19 +2806,8 @@ async function loadMCQQuestion() {
 
     let mcqData;
 
-    // ULTRA-FAST PATH: Use globally preloaded question from cache (page load preload)
-    const preloadedQ = getQuestionFromCache('mcq');
-    if (preloadedQ) {
-      mcqData = preloadedQ;
-      console.log('⚡⚡ Using GLOBALLY preloaded MCQ question (INSTANT - < 50ms!)');
-
-      // Trigger background preload to refill cache
-      if (appState.mcqPreloadCache.length < 3) {
-        preloadMCQQuestions(3, false); // Sequential refill to avoid overwhelming server
-      }
-    }
     // FAST PATH: Use preloaded question from cache
-    else if (appState.mcqPreloadCache.length > 0) {
+    if (appState.mcqPreloadCache.length > 0) {
       mcqData = appState.mcqPreloadCache.shift();
       console.log('⚡ Using preloaded MCQ from cache (instant load)');
 
