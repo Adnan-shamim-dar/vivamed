@@ -989,6 +989,44 @@ const historyState = {
 window.addEventListener('DOMContentLoaded', () => {
   // Set initial state
   window.history.replaceState({ page: 'dashboard' }, '', window.location.href);
+
+  // 🚀 GLOBAL PAGE-LOAD PRELOADING: Silent background fetch of MCQ questions
+  // This runs in the background without blocking UI, so when user clicks MCQ,
+  // questions are already cached and load instantly (< 50ms instead of 5-10s)
+  console.log('📥 Page loaded - beginning silent MCQ preload in background...');
+
+  // Start preload in background (non-blocking, doesn't await)
+  setTimeout(async () => {
+    try {
+      appState.mcqPreloadCache = [];
+      console.log('🔵 Preloading 5 MCQ questions in parallel...');
+
+      // Parallel fetch of 5 questions (uses Promise.all for speed)
+      const fetchPromises = Array(5).fill(null).map((_, i) =>
+        fetch('http://localhost:9997/mcq-question', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId: 'preload_session',  // Dummy session for preload
+            fileId: null,
+            difficulty: 'medium'
+          })
+        }).then(r => r.ok ? r.json() : null).catch(e => {
+          console.warn(`⚠️ Preload question ${i + 1} failed:`, e.message);
+          return null;
+        })
+      );
+
+      const results = await Promise.all(fetchPromises);
+      const loadedQuestions = results.filter(r => r !== null);
+      appState.mcqPreloadCache = loadedQuestions;
+
+      console.log(`✅ Page preload complete: ${loadedQuestions.length}/5 questions ready`);
+    } catch (error) {
+      console.warn('⚠️ Page preload failed (non-critical):', error.message);
+      appState.mcqPreloadCache = [];
+    }
+  }, 100);  // 100ms delay to not block page render
 });
 
 // Handle back button
@@ -1577,8 +1615,13 @@ async function startMode(mode) {
       // Continue anyway - not critical
     }
 
-    // START PRELOADING IN BACKGROUND (parallel for initial batch, much faster!)
-    preloadMCQQuestions(3, true);
+    // START PRELOADING IN BACKGROUND (only if global preload didn't fill cache)
+    if (appState.mcqPreloadCache.length === 0) {
+      console.log('💡 Global preload cache empty, starting mode-level preload...');
+      preloadMCQQuestions(3, true);
+    } else {
+      console.log(`✨ Using globally preloaded questions! (${appState.mcqPreloadCache.length} ready)`);
+    }
 
     // Load first MCQ question (uses existing endpoint)
     await loadMCQQuestion();
