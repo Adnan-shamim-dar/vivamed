@@ -931,6 +931,8 @@ let appState = {
   mcqQuestionNumber: 0,              // Question 1 of 18
   mcqTotalQuestions: 18,             // Total questions in session (unlimited like practice)
   mcqScore: 0,                       // Running score
+  mcqPreloadCache: [],               // Preloaded MCQ questions for instant transitions
+  mcqPreloadInProgress: false,       // Currently preloading MCQ questions?
 
   // ========== NEW: MODE-SPECIFIC PDF UPLOADS ==========
   examUploadedPDF: null,             // PDF uploaded in Exam mode (null or {fileId, filename, chunks})
@@ -1538,11 +1540,17 @@ async function startMode(mode) {
     // NEW: MCQ mode - instant load with background preload
     console.log('🚀 MCQ Mode: Starting MCQ questions');
 
+    // Initialize MCQ preload cache
+    appState.mcqPreloadCache = [];
+    appState.mcqPreloadInProgress = false;
+
     // Load first MCQ question (uses existing endpoint)
     await loadMCQQuestion();
 
-    // DON'T start background preload for MCQ - it uses direct endpoint, not queues
-    // startQueueMonitoring() is only for Practice/Exam modes
+    // Start background MCQ preloading (non-blocking)
+    setTimeout(() => {
+      preloadMCQQuestions(5); // Preload 5 questions in background
+    }, 100);
   } else {
     // NEW: Practice/Exam mode - instant load with background preload
     console.log(`🚀 ${mode.charAt(0).toUpperCase() + mode.slice(1)} Mode: Starting with instant local question load`);
@@ -1552,7 +1560,7 @@ async function startMode(mode) {
     console.log(`✅ Pre-loaded ${localLoaded} local questions`);
 
     // STEP 2: Build initial questions array from queue (instant display)
-    const initialLocalCount = 3;  // Get 3 local questions for immediate display
+    const initialLocalCount = 12;  // Load 12 questions to prevent running out during queue refill
     appState.questions = [];
     for (let i = 0; i < initialLocalCount && appState.questionQueues.local.length > 0; i++) {
       const q = getNextQuestion();
@@ -1822,6 +1830,58 @@ async function preloadAIQuestions(mode, count = 5) {
 }
 
 /**
+ * Preload MCQ questions in background for faster transitions
+ * @param {number} count - How many questions to preload
+ */
+async function preloadMCQQuestions(count = 5) {
+  try {
+    if (appState.mcqPreloadInProgress) return;
+    if (!appState.mcqMode) return; // Only preload if in MCQ mode
+    if (appState.mcqPreloadCache.length >= count) return; // Cache full
+
+    appState.mcqPreloadInProgress = true;
+
+    for (let i = 0; i < count; i++) {
+      if (!appState.mcqMode) break; // Exit if mode changed
+
+      try {
+        const fileId = appState.currentModeUploadedPDF?.fileId || appState.mcqUploadedPDF?.fileId || null;
+
+        const response = await fetch('http://localhost:9997/mcq-question', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId: appState.sessionId,
+            fileId: fileId,
+            difficulty: 'medium'
+          })
+        });
+
+        if (response.ok) {
+          const mcqData = await response.json();
+          appState.mcqPreloadCache.push(mcqData);
+          console.log(`✅ Preloaded MCQ ${i + 1}/${count}. Cache size: ${appState.mcqPreloadCache.length}`);
+        }
+      } catch (e) {
+        console.warn(`⚠️ MCQ preload ${i + 1} failed:`, e.message);
+        // Continue preloading others
+      }
+    }
+
+    appState.mcqPreloadInProgress = false;
+    console.log('✅ MCQ preload complete. Cache:', appState.mcqPreloadCache.length);
+
+    // Preload more when cache gets low (every 2 seconds)
+    if (appState.mcqMode && appState.mcqPreloadCache.length < 2) {
+      setTimeout(() => preloadMCQQuestions(3), 2000);
+    }
+  } catch (error) {
+    console.error('❌ MCQ preload batch failed:', error);
+    appState.mcqPreloadInProgress = false;
+  }
+}
+
+/**
  * Get next question from highest priority available queue
  * Priority: PDF > AI > Local
  * Triggers background preload when queue gets low
@@ -1903,7 +1963,7 @@ function startQueueMonitoring() {
     if (aiLen < appState.queueMinimumThreshold && !appState.queueStatus.ai.loading) {
       preloadAIQuestions(appState.mode, 3);
     }
-  }, 2000); // Check every 2 seconds
+  }, 1000); // Check every 1 second for faster refill
 }
 
 // ========================================
@@ -2683,74 +2743,96 @@ async function loadMCQQuestion() {
     // Determine fileId if exists
     const fileId = appState.currentModeUploadedPDF?.fileId || appState.mcqUploadedPDF?.fileId || null;
 
-    // Retry logic: Try up to 3 times with exponential backoff
-    let lastError;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        const response = await fetch('http://localhost:9997/mcq-question', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId: appState.sessionId,
-            fileId: fileId,
-            difficulty: 'medium'
-          })
-        });
+    let mcqData;
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    // FAST PATH: Use preloaded question from cache
+    if (appState.mcqPreloadCache.length > 0) {
+      mcqData = appState.mcqPreloadCache.shift();
+      console.log('⚡ Using preloaded MCQ from cache (instant load)');
 
-        const mcqData = await response.json();
-        appState.mcqQuestion = mcqData;
-        appState.selectedOption = null;
-        appState.mcqSubmitted = false;
-        appState.mcqCorrectOption = mcqData.correctOption;
-        appState.mcqExplanation = mcqData.explanation;
+      // Trigger background preload to refill cache
+      if (appState.mcqPreloadCache.length < 3) {
+        preloadMCQQuestions(3);
+      }
+    } else {
+      // FALLBACK: Fetch on-demand with retry logic
+      console.log('📡 Fetching MCQ on-demand (cache empty)...');
 
-        // Render MCQ question
-        document.getElementById('mcq-question-text').textContent = mcqData.question;
-        document.getElementById('mcq-option-a').textContent = mcqData.options.A;
-        document.getElementById('mcq-option-b').textContent = mcqData.options.B;
-        document.getElementById('mcq-option-c').textContent = mcqData.options.C;
-        document.getElementById('mcq-option-d').textContent = mcqData.options.D;
+      // Retry logic: Try up to 3 times with exponential backoff
+      let lastError;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const response = await fetch('http://localhost:9997/mcq-question', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId: appState.sessionId,
+              fileId: fileId,
+              difficulty: 'medium'
+            })
+          });
 
-        // Update difficulty badge
-        const diffBadge = document.getElementById('mcq-difficulty-badge');
-        diffBadge.textContent = mcqData.difficulty ? mcqData.difficulty.charAt(0).toUpperCase() + mcqData.difficulty.slice(1) : 'Medium';
-        diffBadge.className = 'inline-block px-3 py-1 rounded-lg text-xs font-semibold';
-        if (mcqData.difficulty === 'easy') {
-          diffBadge.className += ' bg-green-500/20 text-green-300';
-        } else if (mcqData.difficulty === 'hard') {
-          diffBadge.className += ' bg-red-500/20 text-red-300';
-        } else {
-          diffBadge.className += ' bg-yellow-500/20 text-yellow-300';
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+          mcqData = await response.json();
+          break; // Success!
+        } catch (error) {
+          lastError = error;
+          console.warn(`⚠️ Attempt ${attempt}/3 failed:`, error.message);
+
+          // If not last attempt, wait before retrying
+          if (attempt < 3) {
+            const delayMs = Math.pow(2, attempt) * 500; // 1s, 2s, 4s
+            console.log(`⏳ Retrying in ${delayMs}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+          }
         }
+      }
 
-        // Reset UI
-        document.querySelectorAll('.mcq-option-btn').forEach(btn => {
-          btn.classList.remove('selected', 'correct', 'incorrect');
-          btn.disabled = false;
-        });
-        document.getElementById('mcq-feedback').classList.add('hidden');
-        document.getElementById('mcq-submit-btn').classList.remove('hidden');
-        document.getElementById('mcq-next-btn').classList.add('hidden');
-
-        console.log('✅ MCQ question loaded');
-        return; // Success! Exit retry loop
-      } catch (error) {
-        lastError = error;
-        console.warn(`⚠️ Attempt ${attempt}/3 failed:`, error.message);
-
-        // If not last attempt, wait before retrying
-        if (attempt < 3) {
-          const delayMs = Math.pow(2, attempt) * 500; // 1s, 2s, 4s
-          console.log(`⏳ Retrying in ${delayMs}ms...`);
-          await new Promise(resolve => setTimeout(resolve, delayMs));
-        }
+      if (!mcqData) {
+        throw lastError || new Error('Failed to load MCQ question after 3 attempts');
       }
     }
 
-    // All 3 attempts failed
-    throw lastError || new Error('Failed to load MCQ question after 3 attempts');
+    appState.mcqQuestion = mcqData;
+    appState.selectedOption = null;
+    appState.mcqSubmitted = false;
+    appState.mcqCorrectOption = mcqData.correctOption;
+    appState.mcqExplanation = mcqData.explanation;
+
+    // Render MCQ question
+    document.getElementById('mcq-question-text').textContent = mcqData.question;
+    document.getElementById('mcq-option-a').textContent = mcqData.options.A;
+    document.getElementById('mcq-option-b').textContent = mcqData.options.B;
+    document.getElementById('mcq-option-c').textContent = mcqData.options.C;
+    document.getElementById('mcq-option-d').textContent = mcqData.options.D;
+
+    // Update difficulty badge
+    const diffBadge = document.getElementById('mcq-difficulty-badge');
+    diffBadge.textContent = mcqData.difficulty ? mcqData.difficulty.charAt(0).toUpperCase() + mcqData.difficulty.slice(1) : 'Medium';
+    diffBadge.className = 'inline-block px-3 py-1 rounded-lg text-xs font-semibold';
+    if (mcqData.difficulty === 'easy') {
+      diffBadge.className += ' bg-green-500/20 text-green-300';
+    } else if (mcqData.difficulty === 'hard') {
+      diffBadge.className += ' bg-red-500/20 text-red-300';
+    } else {
+      diffBadge.className += ' bg-yellow-500/20 text-yellow-300';
+    }
+
+    // Update MCQ counter display
+    document.getElementById('mcq-q-number').textContent = appState.mcqQuestionNumber;
+
+    // Reset UI
+    document.querySelectorAll('.mcq-option-btn').forEach(btn => {
+      btn.classList.remove('selected', 'correct', 'incorrect');
+      btn.disabled = false;
+    });
+    document.getElementById('mcq-feedback').classList.add('hidden');
+    document.getElementById('mcq-submit-btn').classList.remove('hidden');
+    document.getElementById('mcq-next-btn').classList.add('hidden');
+
+    console.log('✅ MCQ question loaded');
+    return; // Success!
   } catch (error) {
     console.error('❌ MCQ Load Error:', error.message);
     alert('Failed to load MCQ question. Please try again.');
