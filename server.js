@@ -2002,10 +2002,15 @@ app.get("/question", async (req, res) => {
 // POST: Batch question generation (for zero-latency multi-queue preloading)
 app.post("/questions/batch", async (req, res) => {
   try {
-    const { sessionId, count = 5, source = 'ai', fileId } = req.body;
+    const { sessionId, count = 5, source = 'ai', fileId, subject = null } = req.body;  // NEW: Add subject parameter
 
     // Validate count
     const batchSize = Math.min(Math.max(count, 1), 20); // Limit between 1 and 20
+
+    // Log subject context if provided
+    if (subject) {
+      console.log(`📚 Batch generation with subject filter: ${subject}`);
+    }
 
     if (!OPENROUTER_API_KEY) {
       // No API key: return local questions

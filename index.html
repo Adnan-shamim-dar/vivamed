@@ -117,6 +117,126 @@
     opacity: 1;
   }
 
+  /* ========== SUBJECT SELECTOR STYLING (NEW) ========== */
+  .subject-selector-container {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 3rem;
+    padding: 0 1rem;
+  }
+
+  .subject-selector-wrapper {
+    width: 100%;
+    max-width: 600px;
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 1.5rem;
+    padding: 2rem;
+    transition: all 0.3s ease;
+  }
+
+  .subject-selector-wrapper:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(59, 130, 246, 0.3);
+  }
+
+  .subject-selector-header {
+    margin-bottom: 1.5rem;
+  }
+
+  .subject-selector-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #fff;
+    margin: 0 0 0.5rem 0;
+    background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .subject-selector-description {
+    font-size: 0.9rem;
+    color: #cbd5e1;
+    margin: 0;
+  }
+
+  .subject-selector-control {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+  }
+
+  .subject-selector-dropdown {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    background: rgba(15, 23, 42, 0.5);
+    border: 2px solid rgba(59, 130, 246, 0.3);
+    border-radius: 0.75rem;
+    color: white;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-family: 'Inter', sans-serif;
+  }
+
+  .subject-selector-dropdown:hover {
+    border-color: rgba(59, 130, 246, 0.6);
+    background: rgba(15, 23, 42, 0.7);
+  }
+
+  .subject-selector-dropdown:focus {
+    outline: none;
+    border-color: #3b82f6;
+    background: rgba(15, 23, 42, 0.9);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .subject-selector-dropdown option {
+    background: #0f172a;
+    color: white;
+    padding: 0.5rem;
+  }
+
+  .subject-badge {
+    padding: 0.5rem 1rem;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(139, 92, 246, 0.2));
+    border: 1px solid rgba(59, 130, 246, 0.4);
+    border-radius: 0.5rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .badge-text {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #93c5fd;
+  }
+
+  .subject-divider {
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.3), transparent);
+    margin-bottom: 3rem;
+  }
+
+  @media (max-width: 640px) {
+    .subject-selector-wrapper {
+      padding: 1.5rem;
+    }
+
+    .subject-selector-control {
+      flex-direction: column;
+    }
+
+    .subject-badge {
+      width: 100%;
+      text-align: center;
+    }
+  }
+
   /* ========== MCQ STYLING (NEW) ========== */
   .mcq-option-btn {
     position: relative;
@@ -246,6 +366,49 @@
           ✨ I love you so much Kashfiyah, More than I have the means to prove ✨
         </p>
       </div>
+
+      <!-- Subject Selector Section (NEW) -->
+      <div class="subject-selector-container">
+        <div class="subject-selector-wrapper">
+          <div class="subject-selector-header">
+            <h3 class="subject-selector-title">🎓 Select Subject</h3>
+            <p class="subject-selector-description">Choose a subject to focus your study (or select General for all)</p>
+          </div>
+
+          <div class="subject-selector-control">
+            <select id="globalSubjectSelector" class="subject-selector-dropdown" onchange="updateGlobalSubject(this.value)">
+              <option value="">General (All Subjects)</option>
+              <option value="Anatomy">Anatomy</option>
+              <option value="Biochemistry">Biochemistry</option>
+              <option value="Cardiology">Cardiology</option>
+              <option value="Dermatology">Dermatology</option>
+              <option value="Gastroenterology">Gastroenterology</option>
+              <option value="Hematology">Hematology</option>
+              <option value="Immunology">Immunology</option>
+              <option value="Microbiology">Microbiology</option>
+              <option value="Neurology">Neurology</option>
+              <option value="Obstetrics">Obstetrics</option>
+              <option value="Oncology">Oncology</option>
+              <option value="Orthopedics">Orthopedics</option>
+              <option value="Pathology">Pathology</option>
+              <option value="Pharmacology">Pharmacology</option>
+              <option value="Physiology">Physiology</option>
+              <option value="Psychiatry">Psychiatry</option>
+              <option value="Radiology">Radiology</option>
+              <option value="Rheumatology">Rheumatology</option>
+              <option value="Surgery">Surgery</option>
+              <option value="Other">Other</option>
+            </select>
+
+            <div class="subject-badge">
+              <span class="badge-text">📚 All Subjects</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Divider -->
+      <div class="subject-divider"></div>
 
       <!-- GRID LAYOUT -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
@@ -777,6 +940,10 @@ let appState = {
 
   // ========== NEW: LIBRARY FILTERING ==========
   libraryQuestionTypeFilter: 'all',   // 'all', 'long-form', or 'mcq'
+
+  // ========== NEW: GLOBAL SUBJECT SELECTOR ==========
+  globalSelectedSubject: '',          // '' = all subjects, or subject name
+  subjectPreference: 'All Subjects',  // Display text for current selection
 
   // ========== NEW: ZERO-LATENCY MULTI-QUEUE SYSTEM ==========
   questionQueues: {
@@ -1569,7 +1736,8 @@ async function preloadLocalQuestions(mode, count = 5) {
     // Fetch from library/questions endpoint
     const params = new URLSearchParams({
       limit: count,
-      questionType: questionType
+      questionType: questionType,
+      subject: appState.globalSelectedSubject || ''  // NEW: Add subject filter
     });
 
     const response = await fetch(`http://localhost:9997/library/questions?${params}`);
@@ -1621,7 +1789,8 @@ async function preloadAIQuestions(mode, count = 5) {
         sessionId: appState.sessionId,
         count: count,
         source: appState.uploadedPDF?.fileId ? 'pdf' : 'ai',
-        fileId: appState.uploadedPDF?.fileId || null
+        fileId: appState.uploadedPDF?.fileId || null,
+        subject: appState.globalSelectedSubject || null  // NEW: Add subject filter
       })
     });
 
@@ -2451,6 +2620,23 @@ function filterLibraryByDifficulty(difficulty) {
 function filterLibraryByType(questionType) {
   libraryCurrentQuestionType = questionType;
   loadLibraryQuestions();
+}
+
+function updateGlobalSubject(subject) {
+  appState.globalSelectedSubject = subject;
+
+  // Update badge display
+  const badgeText = subject ? subject : 'All Subjects';
+  const emoji = subject ? '📖 ' : '📚 ';
+  document.querySelector('.badge-text').textContent = emoji + badgeText;
+  appState.subjectPreference = badgeText;
+
+  console.log(`🎓 Global subject changed to: ${badgeText}`);
+
+  // If user changes subject while in a mode, notify them
+  if (appState.mode) {
+    console.log('ℹ️ Subject changed during active mode - will apply to next question batch');
+  }
 }
 
 function copyToClipboard(question, answer) {
