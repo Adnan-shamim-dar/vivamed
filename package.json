@@ -4,7 +4,8 @@
   "description": "AI Medical Viva Trainer",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "seed-library": "node seed-library.js"
   },
   "type": "commonjs",
   "dependencies": {
