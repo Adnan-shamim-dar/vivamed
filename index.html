@@ -962,7 +962,19 @@ let appState = {
   queueMinimumThreshold: 3,       // Keep at least 3 questions queued
   queueMaximumSize: 10,           // Max 10 questions per queue
   preloadInProgress: false,       // Prevent duplicate preload calls
-  queueMonitorInterval: null      // Store interval ID for monitoring
+  queueMonitorInterval: null,     // Store interval ID for monitoring
+
+  // ========== NEW: MCQ LEARNING ENGINE (Duolingo-style) ==========
+  mcqPerformance: {
+    correctQuestions: [],         // Questions answered correctly
+    wrongQuestions: []            // Questions answered wrong, marked for revision
+  },
+  sessionStats: {
+    correctCount: 0,
+    wrongCount: 0,
+    totalAttempts: 0,
+    accuracy: 0
+  }
 };
 
 // ========================================
@@ -1538,11 +1550,32 @@ async function startMode(mode) {
   // Fetch questions/Load MCQ
   if (mode === 'mcq') {
     // NEW: MCQ mode - instant load with background preload
-    console.log('🚀 MCQ Mode: Starting MCQ questions');
+    console.log('🚀 MCQ Mode: Starting MCQ questions with learning engine');
 
     // Initialize MCQ preload cache
     appState.mcqPreloadCache = [];
     appState.mcqPreloadInProgress = false;
+
+    // NEW: Load previous performance data from server (for learning engine)
+    try {
+      const statsResponse = await fetch('http://localhost:9997/mcq/session-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: appState.sessionId })
+      });
+
+      if (statsResponse.ok) {
+        const perfData = await statsResponse.json();
+        if (perfData.success) {
+          appState.mcqPerformance = perfData.performance || { correctQuestions: [], wrongQuestions: [] };
+          appState.sessionStats = perfData.stats || { correctCount: 0, wrongCount: 0, totalAttempts: 0, accuracy: 0 };
+          console.log(`📊 Learning engine loaded: ${appState.sessionStats.correctCount} correct, ${appState.sessionStats.wrongCount} wrong`);
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ Failed to load previous performance:', error.message);
+      // Continue anyway - not critical
+    }
 
     // Load first MCQ question (uses existing endpoint)
     await loadMCQQuestion();
@@ -2822,7 +2855,28 @@ async function loadMCQQuestion() {
     // Update MCQ counter display
     document.getElementById('mcq-q-number').textContent = appState.mcqQuestionNumber;
 
-    // Reset UI
+    // NEW: Handle revision badge display (Duolingo-style learning)
+    if (mcqData.isRevision) {
+      // Show revision badge
+      let revisionBadge = document.getElementById('mcq-revision-badge');
+      if (!revisionBadge) {
+        revisionBadge = document.createElement('div');
+        revisionBadge.id = 'mcq-revision-badge';
+        revisionBadge.className = 'inline-block px-3 py-1 rounded-lg text-xs font-semibold mb-3 bg-blue-500/30 text-blue-300 border border-blue-500/50';
+        document.getElementById('mcq-question-text').parentElement.insertBefore(revisionBadge, document.getElementById('mcq-question-text'));
+      }
+      revisionBadge.textContent = `🔁 Revision (${mcqData.reviewCount}/2)`;
+      revisionBadge.classList.remove('hidden');
+      console.log(`🔁 Revision question - Attempt ${mcqData.reviewCount} of 2`);
+    } else {
+      // Remove badge for new questions
+      const revisionBadge = document.getElementById('mcq-revision-badge');
+      if (revisionBadge) revisionBadge.classList.add('hidden');
+      console.log(`✨ New question`);
+    }
+
+    // NEW: Update stats display
+    updateMCQStatsDisplay();
     document.querySelectorAll('.mcq-option-btn').forEach(btn => {
       btn.classList.remove('selected', 'correct', 'incorrect');
       btn.disabled = false;
@@ -2837,6 +2891,32 @@ async function loadMCQQuestion() {
     console.error('❌ MCQ Load Error:', error.message);
     alert('Failed to load MCQ question. Please try again.');
   }
+}
+
+// NEW: Update MCQ stats display (Duolingo-style learning)
+function updateMCQStatsDisplay() {
+  const stats = appState.sessionStats;
+  const accuracy = stats.totalAttempts > 0
+    ? Math.round((stats.correctCount / stats.totalAttempts) * 100)
+    : 0;
+
+  // Update stats panel in navigation
+  let statsPanel = document.getElementById('mcq-stats-panel');
+  if (!statsPanel) {
+    statsPanel = document.createElement('div');
+    statsPanel.id = 'mcq-stats-panel';
+    statsPanel.className = 'text-xs text-gray-400 mt-2 space-x-3';
+    const navMenu = document.getElementById('navMenu');
+    if (navMenu) {
+      navMenu.appendChild(statsPanel);
+    }
+  }
+
+  statsPanel.innerHTML = `
+    <span>✅ ${stats.correctCount}</span>
+    <span>❌ ${stats.wrongCount}</span>
+    <span>📊 ${accuracy}%</span>
+  `;
 }
 
 // Select MCQ Option
@@ -2913,8 +2993,8 @@ async function submitMCQAnswer() {
     // Update score display
     document.getElementById('mcq-score').textContent = appState.mcqScore;
 
-    // Save attempt to database
-    await saveMCQAttempt(isCorrect, score);
+    // NEW: Save to learning engine via /mcq/evaluate (replaces saveMCQAttempt)
+    await saveMCQLearningData(isCorrect, score);
 
   } catch (error) {
     console.error('❌ MCQ Submit Error:', error.message);
@@ -2922,7 +3002,49 @@ async function submitMCQAnswer() {
   }
 }
 
-// Save MCQ attempt to database
+// NEW: Save MCQ answer with learning engine integration
+async function saveMCQLearningData(isCorrect, score) {
+  try {
+    console.log(`📊 Saving to learning engine: correct=${isCorrect}`);
+
+    const evaluateResponse = await fetch('http://localhost:9997/mcq/evaluate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: appState.sessionId,
+        question: appState.mcqQuestion.question,
+        optionsJSON: JSON.stringify(appState.mcqQuestion.options),
+        correctOption: appState.mcqQuestion.correctOption,
+        userAnswer: appState.selectedOption,
+        difficulty: appState.mcqQuestion.difficulty,
+        isRevision: appState.mcqQuestion.isRevision || false,
+        reviewCount: appState.mcqQuestion.reviewCount || 0
+      })
+    });
+
+    if (evaluateResponse.ok) {
+      const result = await evaluateResponse.json();
+      if (result.success) {
+        // Update local stats from response
+        appState.sessionStats.correctCount = result.stats.correctAnswers;
+        appState.sessionStats.wrongCount = result.stats.wrongAnswers;
+        appState.sessionStats.totalAttempts = result.stats.totalAttempts;
+        appState.sessionStats.accuracy = result.stats.totalAttempts > 0
+          ? Math.round((result.stats.correctAnswers / result.stats.totalAttempts) * 100)
+          : 0;
+
+        // Update display
+        updateMCQStatsDisplay();
+        console.log(`✅ Learning engine updated. Stats: ${appState.sessionStats.correctCount}/${appState.sessionStats.totalAttempts}`);
+      }
+    }
+  } catch (error) {
+    console.error('⚠️ Error saving to learning engine:', error.message);
+    // Non-critical - continue anyway
+  }
+}
+
+// OLD: Save MCQ attempt to database (kept for reference, can be removed)
 async function saveMCQAttempt(isCorrect, score) {
   try {
     await fetch('http://localhost:9997/progress/save', {
@@ -2952,8 +3074,26 @@ async function nextMCQQuestion() {
 }
 
 // Exit MCQ Mode
-function exitMCQMode() {
-  console.log('🚪 Exiting MCQ mode...');
+async function exitMCQMode() {
+  console.log('🚪 Exiting MCQ mode - calling session-end cleanup...');
+
+  // NEW: Call session-end to cleanup graduated questions
+  try {
+    const response = await fetch('http://localhost:9997/mcq/session-end', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: appState.sessionId })
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      console.log(`🎓 Session ended: ${result.graduatedCount} questions mastered`);
+    }
+  } catch (error) {
+    console.warn('⚠️ Session-end cleanup error:', error.message);
+    // Continue anyway - not critical
+  }
+
   appState.mcqMode = false;
   document.getElementById('mcqScreen').classList.add('hidden');
   document.getElementById('modeScreen').classList.remove('hidden');

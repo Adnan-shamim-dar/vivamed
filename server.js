@@ -203,6 +203,25 @@ db.serialize(() => {
     )
   `);
 
+  // NEW: Table for MCQ performance tracking (Duolingo-style learning engine)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS mcq_performance (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sessionId TEXT NOT NULL,
+      question TEXT NOT NULL,
+      optionsJSON TEXT NOT NULL,
+      correctOption TEXT NOT NULL,
+      userAnswer TEXT NOT NULL,
+      isCorrect BOOLEAN NOT NULL,
+      timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+      reviewCount INTEGER DEFAULT 0,
+      lastReviewedAt TEXT,
+      difficulty TEXT DEFAULT 'medium',
+      markedForRemoval BOOLEAN DEFAULT 0,
+      FOREIGN KEY(sessionId) REFERENCES sessions(sessionId)
+    )
+  `);
+
   // Add columns to sessions table (if they don't exist)
   db.run(`ALTER TABLE sessions ADD COLUMN fileId TEXT`, (err) => {
     if (err && !err.message.includes('duplicate column')) {
@@ -213,6 +232,25 @@ db.serialize(() => {
   db.run(`ALTER TABLE sessions ADD COLUMN lastChunkIndex INTEGER DEFAULT 0`, (err) => {
     if (err && !err.message.includes('duplicate column')) {
       console.error('Error adding lastChunkIndex to sessions:', err.message);
+    }
+  });
+
+  // NEW: Statistics columns for MCQ learning engine
+  db.run(`ALTER TABLE sessions ADD COLUMN correctAnswers INTEGER DEFAULT 0`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding correctAnswers to sessions:', err.message);
+    }
+  });
+
+  db.run(`ALTER TABLE sessions ADD COLUMN wrongAnswers INTEGER DEFAULT 0`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding wrongAnswers to sessions:', err.message);
+    }
+  });
+
+  db.run(`ALTER TABLE sessions ADD COLUMN totalAttempts INTEGER DEFAULT 0`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Error adding totalAttempts to sessions:', err.message);
     }
   });
 
@@ -1613,6 +1651,93 @@ async function processPDF(filePath, originalFilename) {
   }
 }
 
+// ========================================
+// NEW: MCQ LEARNING ENGINE HELPER FUNCTIONS
+// ========================================
+
+// NEW: Load session's performance history (correct/wrong questions)
+async function loadSessionPerformance(sessionId) {
+  return new Promise((resolve, reject) => {
+    db.all(
+      `SELECT id, question, optionsJSON, correctOption, userAnswer, isCorrect, reviewCount, difficulty
+       FROM mcq_performance WHERE sessionId = ? ORDER BY timestamp DESC`,
+      [sessionId],
+      (err, rows) => {
+        if (err) {
+          console.error('❌ Error loading session performance:', err);
+          resolve({ correctQuestions: [], wrongQuestions: [] });
+          return;
+        }
+
+        if (!rows || rows.length === 0) {
+          resolve({ correctQuestions: [], wrongQuestions: [] });
+          return;
+        }
+
+        const performance = {
+          correctQuestions: rows.filter(r => r.isCorrect).map(r => ({
+            id: r.id,
+            question: r.question,
+            optionsJSON: r.optionsJSON,
+            correctOption: r.correctOption,
+            difficulty: r.difficulty,
+            timestamp: r.timestamp
+          })),
+          wrongQuestions: rows.filter(r => !r.isCorrect && r.reviewCount < 2).map(r => ({
+            id: r.id,
+            question: r.question,
+            optionsJSON: r.optionsJSON,
+            correctOption: r.correctOption,
+            userAnswer: r.userAnswer,
+            reviewCount: r.reviewCount || 0,
+            difficulty: r.difficulty,
+            lastReviewedAt: r.lastReviewedAt
+          }))
+        };
+
+        console.log(`📊 Loaded performance: ${performance.correctQuestions.length} correct, ${performance.wrongQuestions.length} wrong`);
+        resolve(performance);
+      }
+    );
+  });
+}
+
+// NEW: Decide whether to return revision question or generate new one (30% probability)
+async function selectNextMCQLogic(sessionId, fileId) {
+  const performance = await loadSessionPerformance(sessionId);
+
+  // 30% probability to show revision question if wrong questions exist
+  const shouldShowRevision = performance.wrongQuestions.length > 0 && Math.random() <= 0.3;
+
+  if (shouldShowRevision) {
+    // REVISION MODE: Pick random from wrongQuestions
+    const revision = performance.wrongQuestions[
+      Math.floor(Math.random() * performance.wrongQuestions.length)
+    ];
+
+    console.log(`🔁 Revision Logic: Returning revision question (${revision.reviewCount + 1}/2 attempts)`);
+
+    return {
+      mode: 'revision',
+      question: revision.question,
+      options: JSON.parse(revision.optionsJSON),
+      correctOption: revision.correctOption,
+      difficulty: revision.difficulty,
+      isRevision: true,
+      reviewCount: revision.reviewCount + 1,
+      revisedQuestionId: revision.id,
+      explanation: 'This question was previously missed. Let\'s try again!'
+    };
+  }
+
+  // NEW QUESTION MODE (70% or no wrong questions yet)
+  return {
+    mode: 'new',
+    isRevision: false,
+    reviewCount: 0
+  };
+}
+
 // POST: Upload PDF endpoint
 app.post('/pdf/upload', upload.single('pdfFile'), async (req, res) => {
   try {
@@ -2233,10 +2358,32 @@ app.post("/mcq-question", async (req, res) => {
 
     console.log(`📋 MCQ Question Endpoint - sessionId=${sessionId}, fileId=${fileId}, difficulty=${diff}`);
 
+    // NEW: Check learning engine for revision question
+    const mcqLogic = await selectNextMCQLogic(sessionId, fileId);
+
+    if (mcqLogic.mode === 'revision') {
+      // Return revision question with metadata
+      console.log(`🔁 Returning revision question (attempt ${mcqLogic.reviewCount}/2)`);
+      return res.json({
+        question: mcqLogic.question,
+        options: mcqLogic.options,
+        correctOption: mcqLogic.correctOption,
+        explanation: mcqLogic.explanation,
+        difficulty: mcqLogic.difficulty,
+        questionType: 'mcq',
+        isRevision: true,
+        reviewCount: mcqLogic.reviewCount,
+        revisedQuestionId: mcqLogic.revisedQuestionId,
+        source: 'revision',
+        pdfBased: false
+      });
+    }
+
+    // NEW QUESTION GENERATION (existing logic continues)
     if (!OPENROUTER_API_KEY) {
       console.warn('⚠️ No API key - returning fallback MCQ');
       const fallback = getFallbackMCQ(diff);
-      return res.json(fallback);
+      return res.json({ ...fallback, isRevision: false, reviewCount: 0 });
     }
 
     let mcqQuestion;
@@ -2253,19 +2400,19 @@ app.post("/mcq-question", async (req, res) => {
         mcqQuestion = await generateGenericAIMCQQuestion(diff);
       }
 
-      return res.json(mcqQuestion);
+      return res.json({ ...mcqQuestion, isRevision: false, reviewCount: 0 });
     } catch (generationError) {
       // Generation failed - gracefully fall back to fallback pool
       console.warn(`⚠️ MCQ generation failed (${generationError.message}), using fallback`);
       const fallback = getFallbackMCQ(diff);
-      return res.json(fallback);
+      return res.json({ ...fallback, isRevision: false, reviewCount: 0 });
     }
   } catch (error) {
     console.error('❌ MCQ Endpoint Error:', error.message);
     // Even if something else goes wrong, try to return a fallback
     const diff = req.body?.difficulty || 'medium';
     const fallback = getFallbackMCQ(diff);
-    return res.json(fallback);
+    return res.json({ ...fallback, isRevision: false, reviewCount: 0 });
   }
 });
 
@@ -2311,6 +2458,195 @@ app.post("/mcq-evaluate", async (req, res) => {
       isCorrect: false,
       score: 0
     });
+  }
+});
+
+// NEW: /mcq/evaluate - Save MCQ answer and update learning engine
+app.post("/mcq/evaluate", async (req, res) => {
+  try {
+    const {
+      sessionId,
+      question,
+      optionsJSON,
+      correctOption,
+      userAnswer,
+      difficulty,
+      isRevision,
+      reviewCount
+    } = req.body;
+
+    const isCorrect = userAnswer === correctOption ? 1 : 0;
+    const score = isCorrect ? 10 : 0;
+
+    console.log(`📊 MCQ Evaluate (Learning): correct=${isCorrect}, revision=${isRevision}, count=${reviewCount}`);
+
+    // Save to mcq_performance table (learning history)
+    db.run(
+      `INSERT INTO mcq_performance (
+        sessionId, question, optionsJSON, correctOption, userAnswer,
+        isCorrect, difficulty, reviewCount, lastReviewedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        sessionId, question, optionsJSON, correctOption, userAnswer,
+        isCorrect, difficulty, reviewCount || 0,
+        new Date().toISOString()
+      ],
+      function(err) {
+        if (err) {
+          console.error('❌ Error saving to MCQ performance:', err);
+          return res.json({ success: false, error: err.message });
+        }
+
+        // Update session statistics
+        db.run(
+          `UPDATE sessions SET
+            totalAttempts = totalAttempts + 1,
+            ${isCorrect ? 'correctAnswers = correctAnswers + 1' : 'wrongAnswers = wrongAnswers + 1'}
+           WHERE sessionId = ?`,
+          [sessionId],
+          (err) => {
+            if (err) {
+              console.error('❌ Error updating session stats:', err);
+            } else {
+              console.log(`✅ Session stats updated: isCorrect=${isCorrect}`);
+            }
+
+            // If revision AND correct AND reviewCount >= 2 → mark for removal
+            if (isRevision && isCorrect && reviewCount >= 2) {
+              db.run(
+                `UPDATE mcq_performance SET markedForRemoval = 1
+                 WHERE sessionId = ? AND question = ? AND correctOption = ?`,
+                [sessionId, question, correctOption],
+                (err) => {
+                  if (!err) {
+                    console.log(`🎓 Question graduated after 2 correct reviews`);
+                  }
+                }
+              );
+            }
+
+            // Get updated stats for response
+            db.get(
+              `SELECT correctAnswers, wrongAnswers, totalAttempts
+               FROM sessions WHERE sessionId = ?`,
+              [sessionId],
+              (err, session) => {
+                res.json({
+                  success: true,
+                  isCorrect: isCorrect,
+                  score: score,
+                  stats: session || { correctAnswers: 0, wrongAnswers: 0, totalAttempts: 0 }
+                });
+              }
+            );
+          }
+        );
+      }
+    );
+  } catch (error) {
+    console.error('❌ MCQ Evaluate Error:', error.message);
+    res.json({ success: false, error: error.message });
+  }
+});
+
+// NEW: /mcq/session-stats - Get session performance data
+app.post("/mcq/session-stats", async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+
+    // Get performance history
+    db.all(
+      `SELECT question, optionsJSON, correctOption, userAnswer, isCorrect, reviewCount
+       FROM mcq_performance WHERE sessionId = ? ORDER BY timestamp DESC LIMIT 100`,
+      [sessionId],
+      (err, attempts) => {
+        if (err) {
+          console.error('❌ Error loading performance history:', err);
+          return res.json({ success: false, error: err.message });
+        }
+
+        // Get session stats
+        db.get(
+          `SELECT correctAnswers, wrongAnswers, totalAttempts
+           FROM sessions WHERE sessionId = ?`,
+          [sessionId],
+          (err, session) => {
+            const performance = {
+              correctQuestions: (attempts || []).filter(a => a.isCorrect).map(a => ({
+                question: a.question,
+                correctOption: a.correctOption
+              })),
+              wrongQuestions: (attempts || []).filter(a => !a.isCorrect && a.reviewCount < 2).map(a => ({
+                question: a.question,
+                optionsJSON: a.optionsJSON,
+                correctOption: a.correctOption,
+                userAnswer: a.userAnswer,
+                reviewCount: a.reviewCount
+              }))
+            };
+
+            const stats = session || { correctAnswers: 0, wrongAnswers: 0, totalAttempts: 0 };
+            const accuracy = stats.totalAttempts > 0
+              ? Math.round((stats.correctAnswers / stats.totalAttempts) * 100)
+              : 0;
+
+            res.json({
+              success: true,
+              performance,
+              stats: {
+                correctCount: stats.correctAnswers,
+                wrongCount: stats.wrongAnswers,
+                totalAttempts: stats.totalAttempts,
+                accuracy: accuracy
+              }
+            });
+          }
+        );
+      }
+    );
+  } catch (error) {
+    console.error('❌ Session Stats Error:', error.message);
+    res.json({ success: false, error: error.message });
+  }
+});
+
+// NEW: /mcq/session-end - Cleanup graduated questions at session end
+app.post("/mcq/session-end", async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+
+    console.log(`🏁 MCQ Session End for ${sessionId} - Cleaning up graduated questions`);
+
+    // Count graduated questions (markedForRemoval = 1)
+    db.get(
+      `SELECT COUNT(*) as graduatedCount FROM mcq_performance
+       WHERE sessionId = ? AND markedForRemoval = 1`,
+      [sessionId],
+      (err, result) => {
+        const graduatedCount = result?.graduatedCount || 0;
+
+        // Delete graduated questions (optional - or just mark them)
+        // For now, we'll just count them and report
+        console.log(`🎓 Session ${sessionId} completed with ${graduatedCount} mastered questions`);
+
+        // Get final stats
+        db.get(
+          `SELECT correctAnswers, wrongAnswers, totalAttempts
+           FROM sessions WHERE sessionId = ?`,
+          [sessionId],
+          (err, session) => {
+            res.json({
+              success: true,
+              graduatedCount: graduatedCount,
+              finalStats: session || { correctAnswers: 0, wrongAnswers: 0, totalAttempts: 0 }
+            });
+          }
+        );
+      }
+    );
+  } catch (error) {
+    console.error('❌ Session End Error:', error.message);
+    res.json({ success: false, error: error.message });
   }
 });
 
