@@ -1708,6 +1708,11 @@ document.addEventListener('click', (e) => {
     closeUserProfilePopup();
   }
 });
+
+// ========================================
+// DASHBOARD STATS LOADING
+// ========================================
+async function loadDashboardStats() {
   try {
     if (!appState.username) {
       console.log('⚠️ No username for dashboard stats');
