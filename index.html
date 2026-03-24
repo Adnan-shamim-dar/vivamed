@@ -1030,6 +1030,8 @@ async function initializeApp() {
     }
   } catch (error) {
     console.error('❌ Error registering user:', error.message);
+    console.warn('⚠️ User registration failed - your progress may not be saved. Check your internet connection.');
+    // Still allow app to continue - registration will be retried
   }
 
   // NEW: Load dashboard stats right after initialization
@@ -1099,9 +1101,20 @@ const historyState = {
 // Initialize history
 window.addEventListener('DOMContentLoaded', async () => {
   // NEW: Initialize username first
-  const userInitialized = await initializeApp();
-  if (!userInitialized) {
-    console.error('❌ Failed to initialize app');
+  try {
+    const userInitialized = await initializeApp();
+    if (!userInitialized) {
+      console.error('❌ Failed to initialize app');
+      document.body.innerHTML += `<div style="position:fixed;bottom:20px;right:20px;background:red;color:white;padding:20px;border-radius:8px;z-index:9999;max-width:400px">
+        ⚠️ App initialization failed. Please <a href="javascript:location.reload()" style="text-decoration:underline;color:white">refresh the page</a>.
+      </div>`;
+      return;
+    }
+  } catch (error) {
+    console.error('❌ App initialization error:', error.message);
+    document.body.innerHTML += `<div style="position:fixed;bottom:20px;right:20px;background:red;color:white;padding:20px;border-radius:8px;z-index:9999;max-width:400px">
+      ⚠️ Failed to start: ${error.message}. <a href="javascript:location.reload()" style="text-decoration:underline;color:white">Refresh</a>
+    </div>`;
     return;
   }
 
@@ -1601,9 +1614,12 @@ async function createSession(mode) {
     const data = await response.json();
     console.log('Session created:', data);
   } catch (error) {
-    console.error('Error creating session:', error);
+    console.error('❌ Error creating session:', error.message);
+    // Notify user but don't block - session will be created on first attempt save
+    console.warn('⚠️ Session creation failed - progress may not be saved if you close the app');
   }
 }
+
 
 async function saveAttempt(questionIndex, question, answer, score, source, chunkIndex = null, pdfBased = false, difficulty = 'generic', topic = null) {
   const attemptPayload = {
@@ -1631,7 +1647,8 @@ async function saveAttempt(questionIndex, question, answer, score, source, chunk
     appState.progressSaved += 1;
     console.log(`📊 Attempt saved: ${score}/10 for ${appState.username}. Total saved: ${appState.progressSaved}`);
   } catch (error) {
-    console.error('❌ Error saving attempt:', error);
+    console.error('❌ Error saving attempt:', error.message);
+    console.warn('⚠️ Failed to save your answer - your progress may not be tracked. Check your internet connection.');
   }
 }
 
@@ -3002,29 +3019,46 @@ let libraryCurrentQuestionType = 'all';  // NEW: Filter for question type (all, 
 async function loadLibrarySubjects() {
   try {
     const response = await fetch('/library/subjects');
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: Failed to load subjects`);
+    }
+
     const data = await response.json();
 
-    if (data.success) {
-      const select = document.getElementById('librarySubjectFilter');
-      select.innerHTML = '<option value="">All Subjects</option>';
-
-      data.subjects.forEach(s => {
-        const option = document.createElement('option');
-        option.value = s.subject;
-        option.textContent = `${s.subject} (${s.count})`;
-        select.appendChild(option);
-      });
-
-      // Update stats
-      document.getElementById('libTotalQuestions').textContent = data.total;
-      document.getElementById('libTotalSubjects').textContent = data.subjects.length;
-
-      // Load questions
-      await loadLibraryQuestions();
+    if (!data.success || !data.subjects) {
+      throw new Error('Invalid subjects data from server');
     }
+
+    const select = document.getElementById('librarySubjectFilter');
+    select.innerHTML = '<option value="">All Subjects</option>';
+
+    data.subjects.forEach(s => {
+      const option = document.createElement('option');
+      option.value = s.subject;
+      option.textContent = `${s.subject} (${s.count})`;
+      select.appendChild(option);
+    });
+
+    // Update stats
+    document.getElementById('libTotalQuestions').textContent = data.total;
+    document.getElementById('libTotalSubjects').textContent = data.subjects.length;
+
+    // Load questions
+    await loadLibraryQuestions();
   } catch (error) {
-    console.error('Error loading library subjects:', error);
-    document.getElementById('libraryQuestionsList').innerHTML = '<p class="text-red-400 text-center py-8">Failed to load library</p>';
+    console.error('❌ Error loading library subjects:', error.message);
+
+    // Show helpful error message
+    const libraryList = document.getElementById('libraryQuestionsList');
+    libraryList.innerHTML = `
+      <div class="text-center py-8">
+        <p class="text-amber-400 mb-4">⚠️ Unable to load library (${error.message})</p>
+        <button onclick="loadLibrarySubjects()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm">
+          🔄 Retry
+        </button>
+      </div>
+    `;
   }
 }
 
