@@ -119,6 +119,20 @@ async function createProgressTables(db) {
       last_attempted TEXT,
       UNIQUE(sessionId, topic, subtopic),
       FOREIGN KEY(sessionId) REFERENCES sessions(sessionId)
+    )`,
+
+    // NEW: User statistics - Aggregated cross-session tracking
+    `CREATE TABLE IF NOT EXISTS user_stats (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      total_attempted INTEGER DEFAULT 0,
+      correct INTEGER DEFAULT 0,
+      wrong INTEGER DEFAULT 0,
+      accuracy_percent REAL DEFAULT 0,
+      topics_performance TEXT DEFAULT '{}',
+      last_session_id TEXT,
+      last_updated TEXT DEFAULT CURRENT_TIMESTAMP,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )`
   ];
 
@@ -133,6 +147,7 @@ async function createProgressTables(db) {
     `ALTER TABLE sessions ADD COLUMN correctAnswers INTEGER DEFAULT 0`,
     `ALTER TABLE sessions ADD COLUMN wrongAnswers INTEGER DEFAULT 0`,
     `ALTER TABLE sessions ADD COLUMN totalAttempts INTEGER DEFAULT 0`,
+    `ALTER TABLE sessions ADD COLUMN username TEXT`,  // NEW
     `ALTER TABLE attempts ADD COLUMN chunkIndex INTEGER`,
     `ALTER TABLE attempts ADD COLUMN pdfBased INTEGER DEFAULT 0`,
     `ALTER TABLE attempts ADD COLUMN difficulty TEXT`,
@@ -140,6 +155,8 @@ async function createProgressTables(db) {
     `ALTER TABLE attempts ADD COLUMN correctOption TEXT`,
     `ALTER TABLE attempts ADD COLUMN isMCQ INTEGER DEFAULT 0`,
     `ALTER TABLE attempts ADD COLUMN questionType TEXT`,
+    `ALTER TABLE attempts ADD COLUMN username TEXT`,  // NEW
+    `ALTER TABLE attempts ADD COLUMN topic TEXT`,  // NEW
     `ALTER TABLE mcq_performance ADD COLUMN topic TEXT`,
     `ALTER TABLE mcq_performance ADD COLUMN subtopic TEXT`
   ];

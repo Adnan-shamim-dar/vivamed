@@ -344,6 +344,45 @@ db.serialize(() => {
     }
   });
 
+  // NEW: User Statistics - Aggregated cross-session tracking
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_stats (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      total_attempted INTEGER DEFAULT 0,
+      correct INTEGER DEFAULT 0,
+      wrong INTEGER DEFAULT 0,
+      accuracy_percent REAL DEFAULT 0,
+      topics_performance TEXT DEFAULT '{}',
+      last_session_id TEXT,
+      last_updated TEXT DEFAULT CURRENT_TIMESTAMP,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `, (err) => {
+    if (err && !err.message.includes('already exists')) {
+      console.error('Error creating user_stats table:', err.message);
+    }
+  });
+
+  // NEW: Add username column to sessions and attempts
+  db.run(`ALTER TABLE sessions ADD COLUMN username TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      // Silently ignore if column already exists
+    }
+  });
+
+  db.run(`ALTER TABLE attempts ADD COLUMN username TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      // Silently ignore if column already exists
+    }
+  });
+
+  db.run(`ALTER TABLE attempts ADD COLUMN topic TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      // Silently ignore if column already exists
+    }
+  });
+
   console.log('📊 Database tables ready (including PDF support and MCQ support)');
 });
 
@@ -2755,22 +2794,144 @@ app.get("/diagnostic", async (req, res) => {
 // ========================================
 
 // POST: Save attempt
+// UPDATED: Save attempt with username tracking
 app.post("/progress/save", (req, res) => {
-  const { sessionId, questionIndex, question, answer, score, source, chunkIndex, pdfBased, difficulty } = req.body;
+  try {
+    const {
+      sessionId,
+      username,  // NEW: Now required
+      questionIndex,
+      question,
+      answer,
+      score,
+      source,
+      chunkIndex,
+      pdfBased,
+      difficulty,
+      topic  // NEW: For topic tracking
+    } = req.body;
 
-  db.run(
-    `INSERT INTO attempts (sessionId, questionIndex, question, answer, score, source, chunkIndex, pdfBased, difficulty)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [sessionId, questionIndex, question, answer, score, source, chunkIndex || null, pdfBased ? 1 : 0, difficulty || 'generic'],
-    (err) => {
-      if (err) {
-        console.error('❌ Failed to save attempt:', err);
-        return res.json({ success: false, error: err.message });
-      }
-      res.json({ success: true, message: 'Progress saved' });
+    // VALIDATE inputs
+    if (!sessionId || !username) {
+      return res.status(400).json({
+        success: false,
+        error: 'sessionId and username required'
+      });
     }
-  );
+
+    if (!question || !answer) {
+      return res.status(400).json({
+        success: false,
+        error: 'question and answer required'
+      });
+    }
+
+    // Validate score is in range
+    const validScore = Math.max(0, Math.min(10, parseInt(score) || 0));
+
+    const cleanUsername = username.trim().substring(0, 50);
+
+    db.run(
+      `INSERT INTO attempts (
+        sessionId, username, questionIndex, question, answer, score,
+        source, chunkIndex, pdfBased, difficulty, topic
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        sessionId, cleanUsername, questionIndex, question, answer, validScore,
+        source || 'ai', chunkIndex || null, pdfBased ? 1 : 0,
+        difficulty || 'generic', topic || null
+      ],
+      (err) => {
+        if (err) {
+          console.error('❌ Failed to save attempt:', err.message);
+          return res.status(500).json({
+            success: false,
+            error: 'Failed to save progress'
+          });
+        }
+
+        // NEW: Update user stats after each attempt
+        updateUserStats(cleanUsername, validScore === 10 ? 1 : 0, validScore === 0 ? 1 : 0, topic);
+
+        res.json({ success: true, message: 'Progress saved' });
+      }
+    );
+  } catch (error) {
+    console.error('❌ Progress save error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Server error'
+    });
+  }
 });
+
+// NEW: Helper function to update user stats
+function updateUserStats(username, isCorrect, isWrong, topic) {
+  try {
+    db.get(
+      `SELECT * FROM user_stats WHERE username = ?`,
+      [username],
+      (err, row) => {
+        if (err) {
+          console.error('❌ Error fetching user stats:', err.message);
+          return;
+        }
+
+        if (!row) {
+          console.error('⚠️ User stats not found for:', username);
+          return;
+        }
+
+        const newTotal = row.total_attempted + 1;
+        const newCorrect = row.correct + (isCorrect ? 1 : 0);
+        const newWrong = row.wrong + (isWrong ? 1 : 0);
+        const newAccuracy = (newCorrect / newTotal * 100).toFixed(2);
+
+        // Update topic stats if provided
+        let topics = {};
+        try {
+          topics = row.topics_performance ? JSON.parse(row.topics_performance) : {};
+        } catch (e) {
+          console.error('❌ JSON parse error:', e.message);
+          topics = {};
+        }
+
+        if (topic) {
+          if (!topics[topic]) {
+            topics[topic] = { correct: 0, total: 0 };
+          }
+          topics[topic].correct += isCorrect ? 1 : 0;
+          topics[topic].total += 1;
+        }
+
+        // Update user_stats
+        db.run(
+          `UPDATE user_stats SET
+           total_attempted = ?,
+           correct = ?,
+           wrong = ?,
+           accuracy_percent = ?,
+           topics_performance = ?,
+           last_updated = CURRENT_TIMESTAMP
+           WHERE username = ?`,
+          [
+            newTotal, newCorrect, newWrong, newAccuracy,
+            JSON.stringify(topics), username
+          ],
+          (err) => {
+            if (err) {
+              console.error('❌ Error updating user stats:', err.message);
+            } else {
+              console.log(`📊 Updated stats for ${username}: ${newCorrect}/${newTotal} (${newAccuracy}%)`);
+            }
+          }
+        );
+      }
+    );
+  } catch (error) {
+    console.error('❌ Stats update error:', error.message);
+  }
+}
 
 // POST: Start/Create session
 app.post("/progress/session", (req, res) => {
@@ -2796,6 +2957,182 @@ app.post("/progress/session", (req, res) => {
       res.json({ success: true, sessionId, startTime, fileId });
     }
   );
+});
+
+// NEW: Register or get user stats
+app.post('/user/register', (req, res) => {
+  try {
+    const { username } = req.body;
+
+    // VALIDATE: Input validation
+    if (!username || username.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Username required'
+      });
+    }
+
+    const cleanUsername = username.trim().substring(0, 50); // Prevent injection
+
+    // Check if user exists
+    db.get(
+      `SELECT * FROM user_stats WHERE username = ?`,
+      [cleanUsername],
+      (err, row) => {
+        if (err) {
+          console.error('❌ User lookup error:', err.message);
+          return res.status(500).json({
+            success: false,
+            error: 'Database error'
+          });
+        }
+
+        if (row) {
+          // User exists - return their stats
+          return res.json({
+            success: true,
+            isNewUser: false,
+            username: cleanUsername,
+            stats: {
+              total_attempted: row.total_attempted,
+              correct: row.correct,
+              wrong: row.wrong,
+              accuracy: row.accuracy_percent,
+              lastSession: row.last_session_id
+            }
+          });
+        }
+
+        // NEW user - create entry
+        db.run(
+          `INSERT INTO user_stats (username, total_attempted, correct, wrong, accuracy_percent, topics_performance)
+           VALUES (?, 0, 0, 0, 0, '{}')`,
+          [cleanUsername],
+          (err) => {
+            if (err) {
+              console.error('❌ User creation error:', err.message);
+              return res.status(500).json({
+                success: false,
+                error: 'Failed to create user'
+              });
+            }
+
+            console.log(`✅ New user created: ${cleanUsername}`);
+
+            res.json({
+              success: true,
+              isNewUser: true,
+              username: cleanUsername,
+              stats: {
+                total_attempted: 0,
+                correct: 0,
+                wrong: 0,
+                accuracy: 0
+              }
+            });
+          }
+        );
+      }
+    );
+  } catch (error) {
+    console.error('❌ Registration error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Server error'
+    });
+  }
+});
+
+// NEW: Get user's aggregated statistics
+app.get('/user/stats/:username', (req, res) => {
+  try {
+    const { username } = req.params;
+
+    // VALIDATE
+    if (!username || username.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Username required'
+      });
+    }
+
+    const cleanUsername = username.trim().substring(0, 50);
+
+    db.get(
+      `SELECT * FROM user_stats WHERE username = ?`,
+      [cleanUsername],
+      (err, row) => {
+        if (err) {
+          console.error('❌ Stats lookup error:', err.message);
+          return res.status(500).json({
+            success: false,
+            error: 'Database error'
+          });
+        }
+
+        if (!row) {
+          return res.json({
+            success: true,
+            found: false,
+            username: cleanUsername
+          });
+        }
+
+        // Parse topics JSON
+        let topics = {};
+        try {
+          topics = row.topics_performance ? JSON.parse(row.topics_performance) : {};
+        } catch (e) {
+          console.error('❌ JSON parse error:', e.message);
+          topics = {};
+        }
+
+        // Calculate weak/strong topics
+        const weakTopics = Object.entries(topics)
+          .filter(([_, stats]) => stats.total > 0 && (stats.correct / stats.total * 100) < 70)
+          .map(([topic, stats]) => ({
+            topic,
+            accuracy: Math.round((stats.correct / stats.total) * 100),
+            attempts: stats.total
+          }))
+          .sort((a, b) => a.accuracy - b.accuracy)
+          .slice(0, 5);
+
+        const strongTopics = Object.entries(topics)
+          .filter(([_, stats]) => stats.total > 0 && (stats.correct / stats.total * 100) >= 70)
+          .map(([topic, stats]) => ({
+            topic,
+            accuracy: Math.round((stats.correct / stats.total) * 100),
+            attempts: stats.total
+          }))
+          .sort((a, b) => b.accuracy - a.accuracy)
+          .slice(0, 5);
+
+        console.log(`📊 Stats for ${cleanUsername}: ${row.correct}/${row.total_attempted} (${row.accuracy_percent}%)`);
+
+        res.json({
+          success: true,
+          found: true,
+          username: cleanUsername,
+          stats: {
+            totalAttempted: row.total_attempted,
+            correct: row.correct,
+            wrong: row.wrong,
+            accuracy: Math.round(row.accuracy_percent),
+            weakTopics: weakTopics,
+            strongTopics: strongTopics
+          },
+          lastUpdated: row.last_updated
+        });
+      }
+    );
+  } catch (error) {
+    console.error('❌ Stats error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Server error'
+    });
+  }
 });
 
 // GET: Load session progress
@@ -2843,6 +3180,103 @@ app.get("/progress/stats/:sessionId", (req, res) => {
       });
     }
   );
+});
+
+// NEW: Generate session summary with weak/strong topics
+app.post('/progress/session-summary', (req, res) => {
+  try {
+    const { sessionId, username } = req.body;
+
+    // VALIDATE
+    if (!sessionId || !username) {
+      return res.status(400).json({
+        success: false,
+        error: 'sessionId and username required'
+      });
+    }
+
+    const cleanUsername = username.trim().substring(0, 50);
+
+    // Get all attempts in this session
+    db.all(
+      `SELECT score, topic FROM attempts WHERE sessionId = ? AND username = ? ORDER BY timestamp DESC`,
+      [sessionId, cleanUsername],
+      (err, rows) => {
+        if (err) {
+          console.error('❌ Error loading session attempts:', err.message);
+          return res.status(500).json({
+            success: false,
+            error: 'Failed to load session'
+          });
+        }
+
+        if (!rows || rows.length === 0) {
+          return res.json({
+            success: true,
+            score: '0/0',
+            accuracy: '0%',
+            weakTopics: [],
+            strongTopics: []
+          });
+        }
+
+        // Calculate session stats
+        const totalQuestions = rows.length;
+        const correctAnswers = rows.filter(r => r.score === 10).length;
+        const accuracy = Math.round((correctAnswers / totalQuestions) * 100);
+
+        // Build topic stats for this session
+        const topicStats = {};
+        rows.forEach(row => {
+          if (row.topic) {
+            if (!topicStats[row.topic]) {
+              topicStats[row.topic] = { correct: 0, total: 0 };
+            }
+            topicStats[row.topic].correct += row.score === 10 ? 1 : 0;
+            topicStats[row.topic].total += 1;
+          }
+        });
+
+        // Identify weak and strong topics
+        const weakTopics = Object.entries(topicStats)
+          .filter(([_, stats]) => stats.total > 0 && (stats.correct / stats.total * 100) < 70)
+          .map(([topic, stats]) => ({
+            topic,
+            accuracy: Math.round((stats.correct / stats.total) * 100),
+            attempts: stats.total
+          }))
+          .sort((a, b) => a.accuracy - b.accuracy);
+
+        const strongTopics = Object.entries(topicStats)
+          .filter(([_, stats]) => stats.total > 0 && (stats.correct / stats.total * 100) >= 70)
+          .map(([topic, stats]) => ({
+            topic,
+            accuracy: Math.round((stats.correct / stats.total) * 100),
+            attempts: stats.total
+          }))
+          .sort((a, b) => b.accuracy - a.accuracy);
+
+        console.log(`📋 Session Summary: ${correctAnswers}/${totalQuestions} (${accuracy}%) for ${cleanUsername}`);
+
+        res.json({
+          success: true,
+          score: `${correctAnswers}/${totalQuestions}`,
+          accuracy: `${accuracy}%`,
+          weakTopics: weakTopics,
+          strongTopics: strongTopics,
+          questionsAttempted: totalQuestions,
+          correct: correctAnswers,
+          incorrect: totalQuestions - correctAnswers
+        });
+      }
+    );
+  } catch (error) {
+    console.error('❌ Session summary error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Server error'
+    });
+  }
 });
 
 // ========================================

@@ -573,26 +573,43 @@
       </div>
 
       <!-- SECTION C: STATS PLACEHOLDER (NEW) -->
-      <div id="nav-stats" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div id="nav-stats" class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <!-- Stat Card 1 -->
         <div class="p-6 rounded-2xl glass-effect border border-white/10 text-center card-hover">
           <div class="text-4xl mb-3">📊</div>
-          <p class="text-gray-400 text-sm mb-2">Score</p>
+          <p class="text-gray-400 text-sm mb-2">Total Attempted</p>
           <p class="text-3xl font-bold text-blue-400">--</p>
         </div>
 
         <!-- Stat Card 2 -->
         <div class="p-6 rounded-2xl glass-effect border border-white/10 text-center card-hover">
-          <div class="text-4xl mb-3">❓</div>
-          <p class="text-gray-400 text-sm mb-2">Questions</p>
+          <div class="text-4xl mb-3">🎯</div>
+          <p class="text-gray-400 text-sm mb-2">Accuracy</p>
           <p class="text-3xl font-bold text-purple-400">--</p>
         </div>
 
         <!-- Stat Card 3 -->
         <div class="p-6 rounded-2xl glass-effect border border-white/10 text-center card-hover">
-          <div class="text-4xl mb-3">🎯</div>
-          <p class="text-gray-400 text-sm mb-2">Accuracy</p>
+          <div class="text-4xl mb-3">✅</div>
+          <p class="text-gray-400 text-sm mb-2">Correct / Wrong</p>
           <p class="text-3xl font-bold text-pink-400">--</p>
+        </div>
+      </div>
+
+      <!-- NEW: Weak and Strong Topics -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+        <div class="p-6 rounded-2xl glass-effect border border-white/10">
+          <h3 class="text-xl font-bold text-red-400 mb-4">📉 Areas to Improve</h3>
+          <div id="weakTopics" class="text-gray-300 text-sm space-y-2">
+            <p class="text-gray-400">Complete questions to identify weak topics</p>
+          </div>
+        </div>
+
+        <div class="p-6 rounded-2xl glass-effect border border-white/10">
+          <h3 class="text-xl font-bold text-green-400 mb-4">✅ Strong Topics</h3>
+          <div id="strongTopics" class="text-gray-300 text-sm space-y-2">
+            <p class="text-gray-400">Keep practicing to strengthen more topics!</p>
+          </div>
         </div>
       </div>
 
@@ -879,6 +896,7 @@
 // STATE MANAGEMENT
 // ========================================
 let appState = {
+  username: null,  // NEW: Persist across sessions
   mode: null, // 'practice', 'exam', or 'mcq'
   currentQuestionIndex: 0,
   totalQuestions: 10,
@@ -974,6 +992,87 @@ let appState = {
   }
 };
 
+// NEW: Username management and initialization
+async function initializeApp() {
+  // Get or prompt username
+  let username = localStorage.getItem('vivamed_username');
+  if (!username) {
+    username = await showUsernameModal();
+    if (!username) {
+      console.error('❌ Username initialization failed');
+      return false;
+    }
+  }
+
+  // Store in appState for all requests
+  appState.username = username;
+
+  // Register user with backend
+  try {
+    const registerResponse = await fetch('/user/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: appState.username })
+    });
+    const registerData = await registerResponse.json();
+    if (registerData.success) {
+      console.log(`✅ User initialized: ${appState.username} (${registerData.isNewUser ? 'new' : 'returning'})`);
+    }
+  } catch (error) {
+    console.error('❌ Error registering user:', error.message);
+  }
+
+  return true;
+}
+
+// NEW: Modal for username input
+async function showUsernameModal() {
+  return new Promise((resolve) => {
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+    modal.innerHTML = `
+      <div class="bg-gradient-to-br from-blue-600 to-purple-600 p-8 rounded-3xl w-80 shadow-2xl">
+        <h2 class="text-2xl font-bold text-white mb-2">Welcome to VivaMed</h2>
+        <p class="text-gray-200 text-sm mb-4">Enter your name to get started</p>
+        <input id="usernameInput" type="text" placeholder="Your name" autocomplete="off"
+          class="w-full px-4 py-3 rounded-lg bg-white bg-opacity-20 text-white placeholder-gray-300 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:bg-opacity-30"/>
+        <button id="submitUsernameBtn" class="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-semibold transition-colors">
+          Start Learning →
+        </button>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const usernameInput = document.getElementById('usernameInput');
+    const submitBtn = document.getElementById('submitUsernameBtn');
+
+    const submitUsername = () => {
+      const username = usernameInput.value.trim();
+      if (username.length < 1) {
+        usernameInput.style.borderColor = '#ff6b6b';
+        usernameInput.placeholder = 'Please enter your name';
+        return;
+      }
+      if (username.length > 50) {
+        usernameInput.value = username.substring(0, 50);
+        return;
+      }
+      localStorage.setItem('vivamed_username', username);
+      modal.remove();
+      resolve(username);
+    };
+
+    submitBtn.onclick = submitUsername;
+    usernameInput.onkeypress = (e) => {
+      if (e.key === 'Enter') submitUsername();
+    };
+
+    // Focus input automatically
+    usernameInput.focus();
+  });
+}
+
 // ========================================
 // ==== NEW: BROWSER HISTORY MANAGEMENT ====
 // ========================================
@@ -983,7 +1082,14 @@ const historyState = {
 };
 
 // Initialize history
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
+  // NEW: Initialize username first
+  const userInitialized = await initializeApp();
+  if (!userInitialized) {
+    console.error('❌ Failed to initialize app');
+    return;
+  }
+
   // Set initial state
   window.history.replaceState({ page: 'dashboard' }, '', window.location.href);
 
@@ -1484,9 +1590,10 @@ async function createSession(mode) {
   }
 }
 
-async function saveAttempt(questionIndex, question, answer, score, source, chunkIndex = null, pdfBased = false, difficulty = 'generic') {
+async function saveAttempt(questionIndex, question, answer, score, source, chunkIndex = null, pdfBased = false, difficulty = 'generic', topic = null) {
   const attemptPayload = {
     sessionId: appState.sessionId,
+    username: appState.username,  // NEW
     questionIndex: questionIndex,
     question: question,
     answer: answer,
@@ -1495,6 +1602,7 @@ async function saveAttempt(questionIndex, question, answer, score, source, chunk
     chunkIndex: chunkIndex,
     pdfBased: pdfBased,
     difficulty: difficulty,
+    topic: topic  // NEW
   };
 
   try {
@@ -1506,9 +1614,79 @@ async function saveAttempt(questionIndex, question, answer, score, source, chunk
 
     const data = await response.json();
     appState.progressSaved += 1;
-    console.log(`Attempt saved. Total saved: ${appState.progressSaved}`);
+    console.log(`📊 Attempt saved: ${score}/10 for ${appState.username}. Total saved: ${appState.progressSaved}`);
   } catch (error) {
-    console.error('Error saving attempt:', error);
+    console.error('❌ Error saving attempt:', error);
+  }
+}
+
+// NEW: Load user stats on dashboard view
+async function loadDashboardStats() {
+  try {
+    if (!appState.username) {
+      console.log('⚠️ No username for dashboard stats');
+      return;
+    }
+
+    const response = await fetch(`/user/stats/${appState.username}`);
+    const data = await response.json();
+
+    if (!data.success || !data.found) {
+      console.log('⚠️ No stats found for user');
+      return;
+    }
+
+    const stats = data.stats;
+
+    // Update dashboard display with stats
+    const dashboardCards = document.querySelectorAll('#nav-stats > div');
+    if (dashboardCards.length >= 3) {
+      // Total Attempted
+      const totalCard = dashboardCards[0].querySelector('p:last-child');
+      if (totalCard) {
+        totalCard.textContent = stats.totalAttempted > 0 ? `${stats.totalAttempted}` : '--';
+      }
+
+      // Accuracy
+      const accuracyCard = dashboardCards[1].querySelector('p:last-child');
+      if (accuracyCard) {
+        accuracyCard.textContent = stats.totalAttempted > 0 ? `${stats.accuracy}%` : '--';
+      }
+
+      // Correct/Wrong
+      const scoreCard = dashboardCards[2].querySelector('p:last-child');
+      if (scoreCard) {
+        scoreCard.textContent = stats.totalAttempted > 0 ? `${stats.correct} ✅  ${stats.wrong} ❌` : '--';
+      }
+    }
+
+    // Update weak topics
+    const weakTopicsDiv = document.getElementById('weakTopics');
+    if (weakTopicsDiv) {
+      if (stats.weakTopics.length > 0) {
+        weakTopicsDiv.innerHTML = stats.weakTopics
+          .map(t => `<div class="text-sm mb-2 p-2 rounded bg-red-900 bg-opacity-20"><span class="text-red-400 font-semibold">${t.topic}</span> <span class="text-gray-400">(${t.accuracy}%)</span></div>`)
+          .join('');
+      } else {
+        weakTopicsDiv.innerHTML = '<p class="text-gray-400 text-sm">No weak topics - Great job! 🎉</p>';
+      }
+    }
+
+    // Update strong topics
+    const strongTopicsDiv = document.getElementById('strongTopics');
+    if (strongTopicsDiv) {
+      if (stats.strongTopics.length > 0) {
+        strongTopicsDiv.innerHTML = stats.strongTopics
+          .map(t => `<div class="text-sm mb-2 p-2 rounded bg-green-900 bg-opacity-20"><span class="text-green-400 font-semibold">${t.topic}</span> <span class="text-gray-400">(${t.accuracy}%)</span></div>`)
+          .join('');
+      } else {
+        strongTopicsDiv.innerHTML = '<p class="text-gray-400 text-sm">Complete more questions to build strong topics</p>';
+      }
+    }
+
+    console.log(`📊 Dashboard updated: ${stats.totalAttempted} questions, ${stats.accuracy}% accuracy`);
+  } catch (error) {
+    console.error('❌ Error loading dashboard stats:', error.message);
   }
 }
 
@@ -2615,6 +2793,49 @@ function showResults() {
     `;
     reviewDiv.appendChild(reviewItem);
   });
+
+  // NEW: Load and display session summary with weak/strong topics
+  if (appState.sessionId && appState.username) {
+    fetch('/progress/session-summary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: appState.sessionId,
+        username: appState.username
+      })
+    })
+    .then(res => res.json())
+    .then(summary => {
+      if (summary.success) {
+        console.log(`🎉 Session Summary: ${summary.score} (${summary.accuracy})`);
+
+        // Display weak topics in results
+        if (summary.weakTopics && summary.weakTopics.length > 0) {
+          let weakTopicsHTML = '<p class="text-sm font-semibold text-red-400 mb-2">📉 Topics to Review:</p>';
+          weakTopicsHTML += summary.weakTopics
+            .map(t => `<div class="text-xs mb-1"><span class="text-red-300">${t.topic}</span> (${t.accuracy}%)</div>`)
+            .join('');
+          const weakDiv = document.createElement('div');
+          weakDiv.className = 'mt-4 p-3 rounded-lg bg-red-900 bg-opacity-20 border border-red-500 border-opacity-30';
+          weakDiv.innerHTML = weakTopicsHTML;
+          document.getElementById('answersReview').parentElement.insertBefore(weakDiv, document.getElementById('answersReview'));
+        }
+
+        // Display strong topics in results
+        if (summary.strongTopics && summary.strongTopics.length > 0) {
+          let strongTopicsHTML = '<p class="text-sm font-semibold text-green-400 mb-2">✅ Strong Topics:</p>';
+          strongTopicsHTML += summary.strongTopics
+            .map(t => `<div class="text-xs mb-1"><span class="text-green-300">${t.topic}</span> (${t.accuracy}%)</div>`)
+            .join('');
+          const strongDiv = document.createElement('div');
+          strongDiv.className = 'mt-4 p-3 rounded-lg bg-green-900 bg-opacity-20 border border-green-500 border-opacity-30';
+          strongDiv.innerHTML = strongTopicsHTML;
+          document.getElementById('answersReview').parentElement.insertBefore(strongDiv, document.getElementById('answersReview'));
+        }
+      }
+    })
+    .catch(error => console.error('❌ Error loading session summary:', error));
+  }
 }
 
 function restartExam() {
@@ -2651,6 +2872,10 @@ function scrollToSection(sectionId) {
   const element = document.getElementById(sectionId);
   if (element) {
     element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // NEW: Load stats when viewing dashboard
+    if (sectionId === 'nav-stats') {
+      loadDashboardStats();
+    }
   }
 }
 
