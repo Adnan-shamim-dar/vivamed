@@ -129,14 +129,7 @@ async function callOpenRouterAPI(prompt, configKey = CONFIG_KEYS.QUESTION_GENERA
     }
 
     const data = await response.json();
-    const message = data.choices?.[0]?.message;
-    let content = message?.content || message?.reasoning;
-
-    // Handle nemotron's reasoning_details format
-    if (!content && message?.reasoning_details?.[0]?.text) {
-      content = message.reasoning_details[0].text;
-    }
-
+    const content = data.choices?.[0]?.message?.content;
     if (!content) {
       throw new Error('Empty response from API');
     }
