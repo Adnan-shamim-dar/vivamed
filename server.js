@@ -3026,10 +3026,24 @@ app.get('/api/dev/code-version', (req, res) => {
 // Serve static files
 app.use(express.static(__dirname))
 
-// Start server
+// Start server with graceful port fallback
 const PORT = process.env.PORT || 9997;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log("\n🏥 Medical Viva Trainer");
   console.log("📝 Questions available:", questionBank.length);
   console.log(`✅ AI-Integrated Server running on http://localhost:${PORT}\n`);
+});
+
+// Handle port in use - try next available port
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n❌ ERROR: Port ${PORT} is already in use!`);
+    console.error('\n🔧 SOLUTION: Kill old Node processes:');
+    console.error('   • bash scripts/dev-safe.sh (Linux/Mac)');
+    console.error('   • scripts\\dev-safe.bat (Windows)');
+    console.error('   OR manually: pkill -f "node" && sleep 2');
+    console.error('\n');
+    process.exit(1);
+  }
+  throw err;
 });

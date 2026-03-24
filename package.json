@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
+    "dev-safe": "bash scripts/dev-safe.sh",
     "restart": "bash scripts/restart.sh",
     "seed-library": "node seed-library.js"
   },
