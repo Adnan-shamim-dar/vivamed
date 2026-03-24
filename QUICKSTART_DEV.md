@@ -30,40 +30,60 @@ npm run dev
 
 ## ✅ Verify Server is Fresh
 
-After starting, check one of these to verify you have the latest code:
+After starting, check one of these to verify you have the latest code on port 9996:
 
 ```bash
 # Quick health check
-curl http://localhost:9997/health
+curl http://localhost:9996/health
 
 # Check code version (shows exact startup time)
-curl http://localhost:9997/api/dev/code-version
+curl http://localhost:9996/api/dev/code-version
 
 # Test questions load
-curl http://localhost:9997/question?sessionId=test
+curl http://localhost:9996/question?sessionId=test
 ```
+
+---
+
+## 📱 Open App in Browser
+
+```
+http://localhost:9996
+```
+
+Frontend will automatically hit the backend on port 9996 (using relative URLs).
 
 ---
 
 ## 🔴 If You See "Failed to Load Questions"
 
-This means old code is running. Fix it:
+This means backend isn't responding or has a different port.
 
+**Fix it:**
 ```bash
-# Kill all Node processes
+# 1. Kill all procs
 taskkill /F /IM node.exe /T
 
-# Wait then restart
-npm run dev
+# 2. Wait for ports to free
+sleep 3
+
+# 3. Restart with safe script
+npm run dev-safe
+
+# 4. Verify on correct port
+curl http://localhost:9996/health
 ```
 
 ---
 
 ## 📋 What's Fixed
 
-✅ **Before:** "Address already in use" crashes → users hit stale code
-✅ **Now:** Automatic cleanup + clear error messages + safe restart
+✅ **Port Mismatch:** Frontend (hardcoded 9998) ↔ Backend (9996)
+✅ **Solution:** Relative URLs - frontend automatically hits backend on any port
+✅ **Result:** Questions load instantly, all endpoints working
 
 ---
 
-**See full guide:** `STALE_CODE_FIX.md`
+**See full guide:** `QUESTIONS_LOADING_FIX.md`
+**Architecture:** `STALE_CODE_FIX.md`
+
