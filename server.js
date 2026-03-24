@@ -610,18 +610,11 @@ async function generatePerfectAnswer(question) {
   try {
     console.log('✏️ [PERFECT ANSWER] Generating answer for:', question.substring(0, 60) + '...');
 
-    const prompt = `You are a senior medical educator. Provide a PERFECT, CONCISE, exam-ready answer to this medical viva question.
+    const prompt = `You are a medical educator. Provide a concise, exam-ready answer to this question.
 
-QUESTION: ${question}
+Q: ${question}
 
-Requirements:
-- Be comprehensive but focused (2-4 sentences)
-- Include key mechanisms and clinical relevance
-- Use proper medical terminology
-- Be suitable for a high-scoring exam response
-- Provide your DIRECT ANSWER only - no thinking or reasoning preamble
-
-ANSWER:`;
+Answer (2-3 sentences max):`;
 
     const perfectAnswer = await callOpenRouterAPI(prompt, CONFIG_KEYS.PERFECT_ANSWER);
 
