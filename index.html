@@ -3398,8 +3398,6 @@ async function loadMCQQuestion() {
       console.log(`✨ New question`);
     }
 
-    // NEW: Update stats display
-    updateMCQStatsDisplay();
     document.querySelectorAll('.mcq-option-btn').forEach(btn => {
       btn.classList.remove('selected', 'correct', 'incorrect');
       btn.disabled = false;
@@ -3432,31 +3430,8 @@ async function loadMCQQuestion() {
   }
 }
 
-// NEW: Update MCQ stats display (Duolingo-style learning)
-function updateMCQStatsDisplay() {
-  const stats = appState.sessionStats;
-  const accuracy = stats.totalAttempts > 0
-    ? Math.round((stats.correctCount / stats.totalAttempts) * 100)
-    : 0;
-
-  // Update stats panel in navigation
-  let statsPanel = document.getElementById('mcq-stats-panel');
-  if (!statsPanel) {
-    statsPanel = document.createElement('div');
-    statsPanel.id = 'mcq-stats-panel';
-    statsPanel.className = 'text-xs text-gray-400 mt-2 space-x-3';
-    const navMenu = document.getElementById('navMenu');
-    if (navMenu) {
-      navMenu.appendChild(statsPanel);
-    }
-  }
-
-  statsPanel.innerHTML = `
-    <span>✅ ${stats.correctCount}</span>
-    <span>❌ ${stats.wrongCount}</span>
-    <span>📊 ${accuracy}%</span>
-  `;
-}
+// REMOVED: MCQ stats display (non-functional) - was showing correct/wrong icons
+// Users can view their stats on the Dashboard instead
 
 // Select MCQ Option
 function selectMCQOption(letter) {
@@ -3575,8 +3550,7 @@ async function saveMCQLearningData(isCorrect, score) {
           ? Math.round((result.stats.correctAnswers / result.stats.totalAttempts) * 100)
           : 0;
 
-        // Update display
-        updateMCQStatsDisplay();
+        // Update display - removed (non-functional stats panel)
 
         // NEW: Reload dashboard stats after MCQ answer
         loadDashboardStats();
