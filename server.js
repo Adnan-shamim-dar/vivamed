@@ -59,7 +59,7 @@ const CONFIG_KEYS = Object.freeze({
   PERFECT_ANSWER: 'perfectAnswer'
 });
 
-const DEFAULT_MODEL = 'gpt-oss-120b';
+const DEFAULT_MODEL = 'openrouter/auto';
 const SELECTED_MODEL = process.env.AI_MODEL || DEFAULT_MODEL;
 
 const AI_MODEL_CONFIG = {
