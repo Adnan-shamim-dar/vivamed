@@ -3027,7 +3027,7 @@ app.get('/api/dev/code-version', (req, res) => {
 app.use(express.static(__dirname))
 
 // Start server with graceful port fallback
-const PORT = process.env.PORT || 9997;
+const PORT = process.env.PORT || 9996;
 const server = app.listen(PORT, () => {
   console.log("\n🏥 Medical Viva Trainer");
   console.log("📝 Questions available:", questionBank.length);
