@@ -129,7 +129,7 @@ async function callOpenRouterAPI(prompt, configKey = CONFIG_KEYS.QUESTION_GENERA
     }
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
+    const content = data.choices?.[0]?.message?.content || data.choices?.[0]?.message?.reasoning;
     if (!content) {
       throw new Error('Empty response from API');
     }
