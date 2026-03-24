@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Restart Server (Kill + Start Fresh)",
+      "type": "shell",
+      "command": "bash",
+      "args": ["${workspaceFolder}/scripts/restart.sh"],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": true,
+        "clear": true
+      },
+      "runOptions": {
+        "runOn": "folderOpen"
+      },
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^(ERROR|error).*$"
+        }
+      }
+    }
+  ]
+}

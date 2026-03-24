@@ -12,6 +12,30 @@ const app = express()
 
 app.use(express.json())
 
+// ========================================
+// SERVER VERSION TRACKING - Detect Stale Code
+// ========================================
+const GIT_HASH = (() => {
+  try {
+    return require('child_process')
+      .execSync('git rev-parse --short HEAD 2>/dev/null')
+      .toString()
+      .trim();
+  } catch {
+    return 'unknown';
+  }
+})();
+
+const SERVER_VERSION = {
+  startTime: new Date().toISOString(),
+  codeHash: GIT_HASH,
+  nodeVersion: process.version,
+  uptime: 0
+};
+
+console.log(`📌 Server Version: ${GIT_HASH}`);
+console.log(`📌 Started at: ${SERVER_VERSION.startTime}`);
+
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
 
 // Check if API key is loaded
@@ -2973,6 +2997,30 @@ app.get('/library/export', (req, res) => {
       });
     }
   );
+});
+
+// ========================================
+// HEALTH & VERSION ENDPOINT
+// ========================================
+app.get('/api/dev/code-version', (req, res) => {
+  SERVER_VERSION.uptime = Math.round(process.uptime());
+
+  // Check adaptive learning system is loaded
+  let adaptiveLoadingReady = false;
+  try {
+    adaptiveLoadingReady = typeof learningService.extractTopicFromQuestion === 'function';
+  } catch (e) {
+    // Service not loaded
+  }
+
+  res.json({
+    success: true,
+    ...SERVER_VERSION,
+    adaptiveLoadingReady,
+    features: {
+      adaptiveLearning: adaptiveLoadingReady ? 'ACTIVE' : 'NOT FOUND'
+    }
+  });
 });
 
 // Serve static files
