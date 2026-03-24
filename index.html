@@ -2512,6 +2512,11 @@ async function getPerfectAnswer() {
     const data = await response.json();
     console.log('📦 Full response data:', data);
 
+    // Check if API call was successful FIRST
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to generate perfect answer');
+    }
+
     // Check if we got an answer in the response
     const perfectAnswer = data.answer || data.perfectAnswer || (typeof data === 'string' ? data : null);
 
@@ -2548,17 +2553,41 @@ async function getPerfectAnswer() {
     console.error('❌ Error fetching perfect answer:', error);
     console.error('Error name:', error.name);
     console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
-    btn.innerHTML = '❌ Connection error';
 
-    // Show detailed error
-    alert(`Error: ${error.message}\n\nCheck:\n1. Server running on port 9996?\n2. Open browser console (F12) for logs`);
+    // Provide helpful feedback based on error
+    let errorMsg = error.message;
+    if (errorMsg.includes('402') || errorMsg.includes('credits')) {
+      errorMsg = 'API service is out of credits. Using fallback answer format instead.';
+    } else if (errorMsg.includes('Failed to generate')) {
+      errorMsg = 'Could not generate answer at this time. Using fallback format.';
+    }
 
-    // Provide helpful feedback
+    console.warn(`⚠️ ${errorMsg}`);
+
+    // Provide a fallback answer structure
+    const fallbackAnswer = `Based on the question "${currentQ.question.substring(0, 60)}...":
+
+Key Points to Cover:
+1. Define the core concept
+2. Explain the mechanism or process
+3. Discuss clinical relevance
+4. Mention current evidence and best practices
+5. Address common complications
+
+Note: This is a guided template. Please provide your medical knowledge to complete this answer.`;
+
+    const answerBox = document.getElementById('answer');
+    answerBox.value = fallbackAnswer;
+    answerBox.focus();
+    updateCharCount();
+
+    btn.innerHTML = '✅ Fallback template inserted!';
+    console.log('✅ Fallback answer template loaded');
+
     setTimeout(() => {
       btn.innerHTML = '💡 Show Perfect Answer';
       btn.disabled = false;
-    }, 1000);
+    }, 2000);
   }
 }
 
