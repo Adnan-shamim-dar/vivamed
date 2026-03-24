@@ -59,7 +59,7 @@ const CONFIG_KEYS = Object.freeze({
   PERFECT_ANSWER: 'perfectAnswer'
 });
 
-const DEFAULT_MODEL = 'openrouter/auto';
+const DEFAULT_MODEL = 'stepfun/step-3.5-flash:free';
 const SELECTED_MODEL = process.env.AI_MODEL || DEFAULT_MODEL;
 
 const AI_MODEL_CONFIG = {

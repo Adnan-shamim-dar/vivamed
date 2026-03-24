@@ -11,7 +11,7 @@ const CONFIG_KEYS = Object.freeze({
   PERFECT_ANSWER: 'perfectAnswer'
 });
 
-const DEFAULT_MODEL = 'gpt-oss-120b';
+const DEFAULT_MODEL = 'stepfun/step-3.5-flash:free';
 const SELECTED_MODEL = process.env.AI_MODEL || DEFAULT_MODEL;
 
 /**
