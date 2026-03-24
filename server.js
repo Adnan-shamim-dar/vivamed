@@ -59,7 +59,7 @@ const CONFIG_KEYS = Object.freeze({
   PERFECT_ANSWER: 'perfectAnswer'
 });
 
-const DEFAULT_MODEL = 'stepfun/step-3.5-flash:free';
+const DEFAULT_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
 const SELECTED_MODEL = process.env.AI_MODEL || DEFAULT_MODEL;
 
 const AI_MODEL_CONFIG = {
@@ -129,7 +129,14 @@ async function callOpenRouterAPI(prompt, configKey = CONFIG_KEYS.QUESTION_GENERA
     }
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || data.choices?.[0]?.message?.reasoning;
+    const message = data.choices?.[0]?.message;
+    let content = message?.content || message?.reasoning;
+
+    // Handle nemotron's reasoning_details format
+    if (!content && message?.reasoning_details?.[0]?.text) {
+      content = message.reasoning_details[0].text;
+    }
+
     if (!content) {
       throw new Error('Empty response from API');
     }
@@ -612,6 +619,7 @@ Requirements:
 - Include key mechanisms and clinical relevance
 - Use proper medical terminology
 - Be suitable for a high-scoring exam response
+- Provide your DIRECT ANSWER only - no thinking or reasoning preamble
 
 ANSWER:`;
 
