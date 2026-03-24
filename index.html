@@ -2535,7 +2535,7 @@ async function getPerfectAnswer() {
     btn.innerHTML = '❌ Connection error';
 
     // Show detailed error
-    alert(`Error: ${error.message}\n\nCheck:\n1. Server running on port 9999?\n2. Open browser console (F12) for logs`);
+    alert(`Error: ${error.message}\n\nCheck:\n1. Server running on port 9996?\n2. Open browser console (F12) for logs`);
 
     // Provide helpful feedback
     setTimeout(() => {
@@ -3157,6 +3157,81 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ========================================
+// MCQ FALLBACK QUESTIONS POOL (NEW)
+// ========================================
+// Hardcoded MCQ questions to use when API fails
+const MCQ_FALLBACK_POOL = [
+  {
+    question: "A 58-year-old man presents with chest pain. Which of the following is the most common cause of acute myocardial infarction?",
+    options: { "A": "Atherosclerotic plaque rupture with thrombosis", "B": "Vasospasm", "C": "Arterial dissection", "D": "Pulmonary embolism" },
+    correctOption: "A",
+    explanation: "Atherosclerotic plaque rupture with subsequent thrombosis is the most common cause of acute MI, accounting for ~85% of cases.",
+    difficulty: "medium",
+    topic: "Cardiology"
+  },
+  {
+    question: "Which hormone is primarily responsible for regulating blood glucose levels?",
+    options: { "A": "Glucagon", "B": "Insulin", "C": "Cortisol", "D": "Epinephrine" },
+    correctOption: "B",
+    explanation: "Insulin is the primary hormone responsible for glucose homeostasis, promoting glucose uptake and storage.",
+    difficulty: "easy",
+    topic: "Endocrinology"
+  },
+  {
+    question: "A patient with chronic kidney disease develops hypertension. Which mechanism is most likely responsible?",
+    options: { "A": "Decreased renin secretion", "B": "Sodium retention and volume expansion", "C": "Increased nitric oxide production", "D": "Decreased aldosterone" },
+    correctOption: "B",
+    explanation: "In CKD, sodium and fluid retention due to reduced GFR leads to volume expansion and hypertension.",
+    difficulty: "hard",
+    topic: "Nephrology"
+  },
+  {
+    question: "What is the primary function of the parasympathetic nervous system?",
+    options: { "A": "Fight-or-flight response", "B": "Rest-and-digest response", "C": "Increased heart rate", "D": "Pupil dilation" },
+    correctOption: "B",
+    explanation: "The parasympathetic nervous system promotes rest, digestion, and anabolic functions.",
+    difficulty: "easy",
+    topic: "Anatomy"
+  },
+  {
+    question: "Which of the following is the most common cause of community-acquired pneumonia?",
+    options: { "A": "Staphylococcus aureus", "B": "Streptococcus pneumoniae", "C": "Klebsiella pneumoniae", "D": "Mycobacterium tuberculosis" },
+    correctOption: "B",
+    explanation: "S. pneumoniae is the most common bacterial cause of community-acquired pneumonia.",
+    difficulty: "medium",
+    topic: "Pulmonology"
+  },
+  {
+    question: "A 45-year-old woman presents with tremor, anxiety, and palpitations. TSH is low. What is the most likely diagnosis?",
+    options: { "A": "Hypothyroidism", "B": "Graves' disease", "C": "Hashimoto's thyroiditis", "D": "Sick euthyroid syndrome" },
+    correctOption: "B",
+    explanation: "Graves' disease is the most common cause of hyperthyroidism and would present with these symptoms and low TSH.",
+    difficulty: "medium",
+    topic: "Endocrinology"
+  },
+  {
+    question: "Which of the following is the first-line treatment for acute myocardial infarction?",
+    options: { "A": "Aspirin and PCI/thrombolytics", "B": "Beta-blockers alone", "C": "Nitroglycerin alone", "D": "Observation" },
+    correctOption: "A",
+    explanation: "Dual antiplatelet therapy (Aspirin + P2Y12 inhibitor) with PCI is the gold standard for STEMI.",
+    difficulty: "hard",
+    topic: "Cardiology"
+  },
+  {
+    question: "What is the primary mechanism of action of ACE inhibitors?",
+    options: { "A": "Block angiotensin II receptors", "B": "Inhibit angiotensin-converting enzyme", "C": "Block aldosterone", "D": "Dilate blood vessels directly" },
+    correctOption: "B",
+    explanation: "ACE inhibitors block the enzyme that converts angiotensin I to angiotensin II, reducing vasoconstriction.",
+    difficulty: "medium",
+    topic: "Pharmacology"
+  }
+];
+
+function getRandomFallbackMCQ() {
+  return MCQ_FALLBACK_POOL[Math.floor(Math.random() * MCQ_FALLBACK_POOL.length)];
+}
+
+// ========================================
 // MCQ MODE FUNCTIONS (NEW)
 // ========================================
 
@@ -3235,7 +3310,9 @@ async function loadMCQQuestion() {
       }
 
       if (!mcqData) {
-        throw lastError || new Error('Failed to load MCQ question after 3 attempts');
+        console.warn('⚠️ MCQ generation failed 3 times, using fallback question');
+        mcqData = getRandomFallbackMCQ();
+        console.log('✅ Using fallback MCQ:', mcqData.question.substring(0, 50) + '...');
       }
     }
 
@@ -3301,7 +3378,23 @@ async function loadMCQQuestion() {
     return; // Success!
   } catch (error) {
     console.error('❌ MCQ Load Error:', error.message);
-    alert('Failed to load MCQ question. Please try again.');
+    console.warn('⚠️ MCQ loading failed completely. Retrying...');
+    // Try once more with a fallback
+    const fallbackMCQ = getRandomFallbackMCQ();
+    appState.mcqQuestion = fallbackMCQ;
+    appState.selectedOption = null;
+    appState.mcqSubmitted = false;
+    appState.mcqCorrectOption = fallbackMCQ.correctOption;
+    appState.mcqExplanation = fallbackMCQ.explanation;
+
+    // Render fallback MCQ question
+    document.getElementById('mcq-question-text').textContent = fallbackMCQ.question;
+    document.getElementById('mcq-option-a').textContent = fallbackMCQ.options.A;
+    document.getElementById('mcq-option-b').textContent = fallbackMCQ.options.B;
+    document.getElementById('mcq-option-c').textContent = fallbackMCQ.options.C;
+    document.getElementById('mcq-option-d').textContent = fallbackMCQ.options.D;
+
+    console.log('✅ Fallback MCQ loaded successfully');
   }
 }
 
