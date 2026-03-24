@@ -338,10 +338,17 @@
       <button onclick="navToSection('nav-stats')" class="text-sm font-medium text-gray-300 hover:text-white transition-smooth">Dashboard</button>
     </div>
 
-    <!-- Right: Profile Circle -->
+    <!-- Right: Profile Circle with Username -->
     <div class="flex items-center gap-4">
-      <div class="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold text-white text-sm shadow-lg shadow-purple-500/50 cursor-pointer hover:shadow-lg hover:shadow-purple-600/50 transition-smooth">
-        U
+      <div id="userProfileBtn" class="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold text-white text-sm shadow-lg shadow-purple-500/50 cursor-pointer hover:shadow-lg hover:shadow-purple-600/50 transition-smooth" onclick="showUserProfilePopup()" title="Click to see profile">
+        <span id="userInitial">U</span>
+      </div>
+      <!-- User Profile Popup (NEW) -->
+      <div id="userProfilePopup" class="hidden absolute top-16 right-4 bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl p-4 shadow-xl border border-purple-500 border-opacity-30 min-w-200px z-50">
+        <div class="text-sm text-gray-300 mb-2">Logged in as:</div>
+        <div id="profileUsername" class="text-lg font-bold text-purple-400 mb-4">User</div>
+        <button onclick="changeUsername()" class="w-full px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg mb-2">Change Name</button>
+        <button onclick="closeUserProfilePopup()" class="w-full px-3 py-2 bg-slate-700 hover:bg-slate-600 text-gray-300 text-sm rounded-lg">Close</button>
       </div>
     </div>
   </div>
@@ -1007,6 +1014,9 @@ async function initializeApp() {
   // Store in appState for all requests
   appState.username = username;
 
+  // Update profile icon with username initial
+  updateProfileIcon(username);
+
   // Register user with backend
   try {
     const registerResponse = await fetch('/user/register', {
@@ -1021,6 +1031,11 @@ async function initializeApp() {
   } catch (error) {
     console.error('❌ Error registering user:', error.message);
   }
+
+  // NEW: Load dashboard stats right after initialization
+  setTimeout(() => {
+    loadDashboardStats();
+  }, 500);
 
   return true;
 }
@@ -1620,8 +1635,79 @@ async function saveAttempt(questionIndex, question, answer, score, source, chunk
   }
 }
 
-// NEW: Load user stats on dashboard view
-async function loadDashboardStats() {
+// NEW: Profile management functions
+function updateProfileIcon(username) {
+  if (!username) return;
+
+  // Get first letter of username (uppercase)
+  const initial = username.charAt(0).toUpperCase();
+
+  // Update profile button
+  const profileBtn = document.getElementById('userProfileBtn');
+  const userInitial = document.getElementById('userInitial');
+  const profileUsername = document.getElementById('profileUsername');
+
+  if (userInitial) userInitial.textContent = initial;
+  if (profileUsername) profileUsername.textContent = username;
+
+  console.log(`👤 Profile updated: ${username} (${initial})`);
+}
+
+function showUserProfilePopup() {
+  const popup = document.getElementById('userProfilePopup');
+  if (popup) {
+    popup.classList.remove('hidden');
+  }
+}
+
+function closeUserProfilePopup() {
+  const popup = document.getElementById('userProfilePopup');
+  if (popup) {
+    popup.classList.add('hidden');
+  }
+}
+
+function changeUsername() {
+  const newUsername = prompt('Enter new name:', appState.username);
+  if (newUsername && newUsername.trim().length > 0) {
+    const cleanUsername = newUsername.trim().substring(0, 50);
+
+    // Update localStorage
+    localStorage.setItem('vivamed_username', cleanUsername);
+
+    // Update appState
+    appState.username = cleanUsername;
+
+    // Update profile icon
+    updateProfileIcon(cleanUsername);
+
+    // Register new username
+    fetch('/user/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: cleanUsername })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        console.log(`✅ Username changed to: ${cleanUsername}`);
+        // Reload dashboard stats for new user
+        loadDashboardStats();
+      }
+    })
+    .catch(err => console.error('❌ Error changing username:', err));
+  }
+}
+
+// NEW: Close popup when clicking outside
+document.addEventListener('click', (e) => {
+  const popup = document.getElementById('userProfilePopup');
+  const profileBtn = document.getElementById('userProfileBtn');
+
+  if (popup && profileBtn && !popup.contains(e.target) && !profileBtn.contains(e.target)) {
+    closeUserProfilePopup();
+  }
+});
   try {
     if (!appState.username) {
       console.log('⚠️ No username for dashboard stats');
@@ -2487,8 +2573,12 @@ async function submitCurrentAnswer() {
       appState.sources[appState.currentQuestionIndex],
       appState.chunkIndexes[appState.currentQuestionIndex],
       appState.pdfBasedFlags[appState.currentQuestionIndex],
-      appState.difficulties[appState.currentQuestionIndex]
+      appState.difficulties[appState.currentQuestionIndex],
+      null  // topic
     );
+
+    // NEW: Reload dashboard stats after saving
+    loadDashboardStats();
 
     // Display perfect score feedback
     const feedbackDiv = document.getElementById('feedback');
@@ -2553,8 +2643,12 @@ async function submitCurrentAnswer() {
       appState.sources[appState.currentQuestionIndex],
       appState.chunkIndexes[appState.currentQuestionIndex],
       appState.pdfBasedFlags[appState.currentQuestionIndex],
-      appState.difficulties[appState.currentQuestionIndex]
+      appState.difficulties[appState.currentQuestionIndex],
+      null  // topic
     );
+
+    // NEW: Reload dashboard stats after saving
+    loadDashboardStats();
 
     // Display structured feedback from AI
     const feedbackDiv = document.getElementById('feedback');
@@ -3325,6 +3419,7 @@ async function saveMCQLearningData(isCorrect, score) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sessionId: appState.sessionId,
+        username: appState.username,  // NEW
         question: appState.mcqQuestion.question,
         optionsJSON: JSON.stringify(appState.mcqQuestion.options),
         correctOption: appState.mcqQuestion.correctOption,
@@ -3350,6 +3445,10 @@ async function saveMCQLearningData(isCorrect, score) {
 
         // Update display
         updateMCQStatsDisplay();
+
+        // NEW: Reload dashboard stats after MCQ answer
+        loadDashboardStats();
+
         console.log(`✅ Learning engine updated. Stats: ${appState.sessionStats.correctCount}/${appState.sessionStats.totalAttempts}`);
       }
     }

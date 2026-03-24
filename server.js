@@ -2548,6 +2548,7 @@ app.post("/mcq/evaluate", async (req, res) => {
   try {
     const {
       sessionId,
+      username,  // NEW
       question,
       optionsJSON,
       correctOption,
@@ -2562,7 +2563,13 @@ app.post("/mcq/evaluate", async (req, res) => {
     const isCorrect = userAnswer === correctOption ? 1 : 0;
     const score = isCorrect ? 10 : 0;
 
-    console.log(`📊 MCQ Evaluate (Learning): correct=${isCorrect}, revision=${isRevision}, count=${reviewCount}, topic=${topic}`);
+    console.log(`📊 MCQ Evaluate (Learning): correct=${isCorrect}, revision=${isRevision}, count=${reviewCount}, topic=${topic}, user=${username}`);
+
+    // NEW: Update user stats if username provided
+    if (username) {
+      const cleanUsername = username.trim().substring(0, 50);
+      updateUserStats(cleanUsername, isCorrect, isCorrect ? 0 : 1, topic);
+    }
 
     // ADAPTIVE LEARNING: Update topic performance tracking
     if (topic) {
