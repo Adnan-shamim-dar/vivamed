@@ -7,6 +7,7 @@ const pdfParse = require('pdf-parse')
 const fs = require('fs').promises
 const fsSync = require('fs')
 const path = require('path')
+const learningService = require('./services/learningService')
 const app = express()
 
 app.use(express.json())
@@ -1007,6 +1008,9 @@ Return ONLY valid JSON (no markdown, no backticks!) in this exact format:
 
       console.log('✅ MCQ Question Generated:', mcqData.question.substring(0, 80) + '...');
 
+      // Extract topic using adaptive learning service
+      const { topic, subtopic } = learningService.extractTopicFromQuestion(mcqData.question, mcqData.options);
+
       return {
         question: mcqData.question,
         options: mcqData.options,
@@ -1015,7 +1019,9 @@ Return ONLY valid JSON (no markdown, no backticks!) in this exact format:
         difficulty: difficulty,
         questionType: 'mcq',
         pdfBased: false,
-        source: 'ai'
+        source: 'ai',
+        topic: topic,
+        subtopic: subtopic
       };
     } catch (error) {
       lastError = error;
@@ -1038,12 +1044,17 @@ function getFallbackMCQ(difficulty = 'medium') {
   const mcqPool = FALLBACK_MCQ_POOLS[difficulty] || FALLBACK_MCQ_POOLS.medium;
   const randomMCQ = mcqPool[Math.floor(Math.random() * mcqPool.length)];
 
+  // Extract topic from fallback MCQ
+  const { topic, subtopic } = learningService.extractTopicFromQuestion(randomMCQ.question, randomMCQ.options);
+
   return {
     ...randomMCQ,
     difficulty: difficulty,
     questionType: 'mcq',
     pdfBased: false,
-    source: 'fallback'
+    source: 'fallback',
+    topic: topic,
+    subtopic: subtopic
   };
 }
 
@@ -1127,6 +1138,9 @@ Return ONLY valid JSON (no markdown!) in this exact format:
 
       console.log('✅ PDF MCQ Generated:', mcqData.question.substring(0, 80) + '...');
 
+      // Extract topic from PDF MCQ
+      const { topic, subtopic } = learningService.extractTopicFromQuestion(mcqData.question, mcqData.options);
+
       return {
         question: mcqData.question,
         options: mcqData.options,
@@ -1139,7 +1153,9 @@ Return ONLY valid JSON (no markdown!) in this exact format:
         difficulty: difficulty,
         questionType: 'mcq',
         pdfBased: true,
-        source: 'pdf-ai'
+        source: 'pdf-ai',
+        topic: topic,
+        subtopic: subtopic
       };
     } catch (error) {
       lastError = error;
@@ -2386,17 +2402,20 @@ app.post("/mcq-question", async (req, res) => {
       return res.json({ ...fallback, isRevision: false, reviewCount: 0 });
     }
 
+    // ADAPTIVE LEARNING: Select topic for this question (70% weak, 30% random)
+    const forcedTopic = await learningService.selectTopicForQuestion(db, sessionId);
+
     let mcqQuestion;
 
     try {
       // Determine if this is PDF-based or generic MCQ
       if (fileId) {
-        // PDF-based MCQ
+        // PDF-based MCQ (uses PDF chunks, not topic bias)
         console.log('📄 PDF-based MCQ mode');
         mcqQuestion = await generatePDFBasedMCQQuestion(sessionId, fileId, diff);
       } else {
-        // Generic MCQ
-        console.log('🤖 Generic MCQ mode');
+        // Generic MCQ (could be biased toward weak topic)
+        console.log('🤖 Generic MCQ mode' + (forcedTopic ? ` - topic bias: ${forcedTopic}` : ''));
         mcqQuestion = await generateGenericAIMCQQuestion(diff);
       }
 
@@ -2472,24 +2491,31 @@ app.post("/mcq/evaluate", async (req, res) => {
       userAnswer,
       difficulty,
       isRevision,
-      reviewCount
+      reviewCount,
+      topic,
+      subtopic
     } = req.body;
 
     const isCorrect = userAnswer === correctOption ? 1 : 0;
     const score = isCorrect ? 10 : 0;
 
-    console.log(`📊 MCQ Evaluate (Learning): correct=${isCorrect}, revision=${isRevision}, count=${reviewCount}`);
+    console.log(`📊 MCQ Evaluate (Learning): correct=${isCorrect}, revision=${isRevision}, count=${reviewCount}, topic=${topic}`);
+
+    // ADAPTIVE LEARNING: Update topic performance tracking
+    if (topic) {
+      await learningService.updateTopicPerformance(db, sessionId, topic, subtopic, isCorrect);
+    }
 
     // Save to mcq_performance table (learning history)
     db.run(
       `INSERT INTO mcq_performance (
         sessionId, question, optionsJSON, correctOption, userAnswer,
-        isCorrect, difficulty, reviewCount, lastReviewedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        isCorrect, difficulty, reviewCount, lastReviewedAt, topic, subtopic
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         sessionId, question, optionsJSON, correctOption, userAnswer,
         isCorrect, difficulty, reviewCount || 0,
-        new Date().toISOString()
+        new Date().toISOString(), topic, subtopic
       ],
       function(err) {
         if (err) {

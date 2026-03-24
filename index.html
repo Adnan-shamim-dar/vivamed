@@ -3093,7 +3093,7 @@ async function submitMCQAnswer() {
 // NEW: Save MCQ answer with learning engine integration
 async function saveMCQLearningData(isCorrect, score) {
   try {
-    console.log(`📊 Saving to learning engine: correct=${isCorrect}`);
+    console.log(`📊 Saving to learning engine: correct=${isCorrect}, topic=${appState.mcqQuestion.topic}`);
 
     const evaluateResponse = await fetch('http://localhost:9997/mcq/evaluate', {
       method: 'POST',
@@ -3106,7 +3106,9 @@ async function saveMCQLearningData(isCorrect, score) {
         userAnswer: appState.selectedOption,
         difficulty: appState.mcqQuestion.difficulty,
         isRevision: appState.mcqQuestion.isRevision || false,
-        reviewCount: appState.mcqQuestion.reviewCount || 0
+        reviewCount: appState.mcqQuestion.reviewCount || 0,
+        topic: appState.mcqQuestion.topic,
+        subtopic: appState.mcqQuestion.subtopic
       })
     });
 

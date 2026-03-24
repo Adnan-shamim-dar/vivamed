@@ -102,6 +102,22 @@ async function createProgressTables(db) {
       lastReviewedAt TEXT,
       difficulty TEXT DEFAULT 'medium',
       markedForRemoval BOOLEAN DEFAULT 0,
+      topic TEXT,
+      subtopic TEXT,
+      FOREIGN KEY(sessionId) REFERENCES sessions(sessionId)
+    )`,
+
+    // Topic performance tracking (Adaptive learning system)
+    `CREATE TABLE IF NOT EXISTS topic_performance (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sessionId TEXT NOT NULL,
+      topic TEXT NOT NULL,
+      subtopic TEXT,
+      total_attempts INTEGER DEFAULT 0,
+      correct_attempts INTEGER DEFAULT 0,
+      accuracy REAL DEFAULT 0,
+      last_attempted TEXT,
+      UNIQUE(sessionId, topic, subtopic),
       FOREIGN KEY(sessionId) REFERENCES sessions(sessionId)
     )`
   ];
@@ -123,7 +139,9 @@ async function createProgressTables(db) {
     `ALTER TABLE attempts ADD COLUMN selectedOption TEXT`,
     `ALTER TABLE attempts ADD COLUMN correctOption TEXT`,
     `ALTER TABLE attempts ADD COLUMN isMCQ INTEGER DEFAULT 0`,
-    `ALTER TABLE attempts ADD COLUMN questionType TEXT`
+    `ALTER TABLE attempts ADD COLUMN questionType TEXT`,
+    `ALTER TABLE mcq_performance ADD COLUMN topic TEXT`,
+    `ALTER TABLE mcq_performance ADD COLUMN subtopic TEXT`
   ];
 
   for (const sql of alterStatements) {
