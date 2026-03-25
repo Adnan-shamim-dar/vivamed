@@ -129,7 +129,11 @@ async function callOpenRouterAPI(prompt, configKey = CONFIG_KEYS.QUESTION_GENERA
     }
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
+    const message = data.choices?.[0]?.message;
+
+    // Prefer content field, but accept reasoning as fallback
+    let content = message?.content || message?.reasoning;
+
     if (!content) {
       throw new Error('Empty response from API');
     }
@@ -1580,7 +1584,13 @@ const upload = multer({
   dest: './uploads/',
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/pdf') {
+    // Accept PDF mimetype or octet-stream or any file (we'll validate in processPDF)
+    console.log(`📄 Upload attempt - name: ${file.originalname}, mimetype: ${file.mimetype}`);
+    // Accept application/pdf, octet-stream, or any file ending in .pdf
+    const isPDF = file.mimetype === 'application/pdf' ||
+                  file.mimetype === 'application/octet-stream' ||
+                  file.originalname.toLowerCase().endsWith('.pdf');
+    if (isPDF) {
       cb(null, true);
     } else {
       cb(new Error('Only PDF files are allowed'));
