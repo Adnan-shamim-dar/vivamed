@@ -3615,35 +3615,80 @@ async function loadMCQQuestion() {
 function selectMCQOption(letter) {
   if (appState.mcqSubmitted) return; // Don't allow selection after submission
 
-  appState.selectedOption = letter;
+  // Check if this is a multi-answer question
+  const isMulti = appState.mcqQuestion?.choice_type === 'multi';
 
-  // Update UI
+  if (isMulti) {
+    // Multi-answer: toggle selection
+    if (!Array.isArray(appState.selectedOption)) {
+      appState.selectedOption = [];
+    }
+
+    const index = appState.selectedOption.indexOf(letter);
+    if (index > -1) {
+      // Deselect
+      appState.selectedOption.splice(index, 1);
+    } else {
+      // Add to selection
+      appState.selectedOption.push(letter);
+    }
+
+    console.log(`🎯 Multi-answer selection: ${appState.selectedOption.join(', ')}`);
+  } else {
+    // Single-answer: replace selection
+    appState.selectedOption = letter;
+    console.log(`🎯 Selected option: ${letter}`);
+  }
+
+  // Update UI - highlight selected options
   document.querySelectorAll('.mcq-option-btn').forEach(btn => {
-    if (btn.dataset.option === letter) {
+    const isSelected = isMulti
+      ? appState.selectedOption.includes(btn.dataset.option)
+      : btn.dataset.option === appState.selectedOption;
+
+    if (isSelected) {
       btn.classList.add('selected');
     } else {
       btn.classList.remove('selected');
     }
   });
-
-  console.log(`🎯 Selected option: ${letter}`);
 }
 
-// Submit MCQ Answer
+// Submit MCQ Answer (supports single and multi-answer)
 async function submitMCQAnswer() {
-  if (!appState.selectedOption) {
-    alert('Please select an option first');
+  // Validate selection
+  if (!appState.selectedOption || (Array.isArray(appState.selectedOption) && appState.selectedOption.length === 0)) {
+    alert('Please select at least one option');
     return;
   }
 
   if (appState.mcqSubmitted) return; // Already submitted
 
   try {
-    console.log(`📋 Submitting MCQ: selected=${appState.selectedOption}, correct=${appState.mcqCorrectOption}`);
+    const isMulti = appState.mcqQuestion?.choice_type === 'multi';
+    const selectedStr = Array.isArray(appState.selectedOption)
+      ? appState.selectedOption.join(',')
+      : appState.selectedOption;
+
+    console.log(`📋 Submitting MCQ: selected=${selectedStr}, correct=${appState.mcqCorrectOption}, type=${isMulti ? 'multi' : 'single'}`);
 
     appState.mcqSubmitted = true;
 
-    const isCorrect = appState.selectedOption === appState.mcqCorrectOption;
+    // Evaluate answer based on type
+    let isCorrect = false;
+    if (isMulti) {
+      // Multi-answer: compare sorted arrays
+      const selected = Array.isArray(appState.selectedOption)
+        ? appState.selectedOption.sort().join(',')
+        : appState.selectedOption.split(',').map(s => s.trim()).sort().join(',');
+      const correct = appState.mcqCorrectOption.split(',').map(s => s.trim()).sort().join(',');
+      isCorrect = selected === correct;
+      console.log(`  Multi-answer: selected=[${selected}] vs correct=[${correct}]`);
+    } else {
+      // Single-answer: direct comparison
+      isCorrect = appState.selectedOption === appState.mcqCorrectOption;
+    }
+
     const score = isCorrect ? 10 : 0;
     appState.mcqScore += score;
 
@@ -3651,10 +3696,14 @@ async function submitMCQAnswer() {
     document.querySelectorAll('.mcq-option-btn').forEach(btn => {
       btn.disabled = true;
 
-      if (btn.dataset.option === appState.mcqCorrectOption) {
+      // Show correct answers
+      const correctAnswers = appState.mcqCorrectOption.split(',').map(s => s.trim());
+      if (correctAnswers.includes(btn.dataset.option)) {
         btn.classList.add('correct');
       }
-      if (btn.dataset.option === appState.selectedOption && !isCorrect) {
+
+      // Show incorrect selected answers (for single-answer)
+      if (!isMulti && btn.dataset.option === appState.selectedOption && !isCorrect) {
         btn.classList.add('incorrect');
       }
     });
@@ -3668,18 +3717,78 @@ async function submitMCQAnswer() {
     if (isCorrect) {
       feedbackDiv.classList.remove('incorrect');
       feedbackDiv.classList.add('correct');
-      resultMsg.textContent = `✓ Correct! 🎉 (+${score} points)`;
+      const feedbackText = isMulti
+        ? `✓ Correct! All answers selected correctly! 🎉 (+${score} points)`
+        : `✓ Correct! 🎉 (+${score} points)`;
+      resultMsg.textContent = feedbackText;
       resultMsg.className = 'text-xl font-bold text-green-400';
     } else {
       feedbackDiv.classList.remove('correct');
       feedbackDiv.classList.add('incorrect');
-      resultMsg.textContent = `✗ Incorrect (0 points). Correct answer: ${appState.mcqCorrectOption}`;
+      const correctStr = isMulti ? appState.mcqCorrectOption.split(',').join(', ') : appState.mcqCorrectOption;
+      resultMsg.textContent = `✗ Incorrect (0 points). Correct answer(s): ${correctStr}`;
       resultMsg.className = 'text-xl font-bold text-red-400';
     }
     explanation.textContent = appState.mcqExplanation;
 
     // Hide submit button, show next button
     document.getElementById('mcq-submit-btn').classList.add('hidden');
+    document.getElementById('mcq-next-btn').classList.remove('hidden');
+
+    // Save to learning engine
+    try {
+      console.log(`📊 Saving to learning engine: correct=${isCorrect}, topic=${appState.mcqQuestion.topic}`);
+
+      // Save to mcq_attempts table
+      const saveResponse = await fetch('/mcq-evaluate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: appState.sessionId,
+          selectedOption: appState.selectedOption,
+          correctOption: appState.mcqCorrectOption,
+          difficulty: appState.mcqQuestion.difficulty,
+          choice_type: appState.mcqQuestion.choice_type || 'single'
+        })
+      });
+
+      if (!saveResponse.ok) {
+        console.error('❌ Failed to save MCQ evaluation');
+      }
+
+      // Also save to mcq_questions_answered for learning engine
+      const learningResponse = await fetch('/api/mcq/attempt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: appState.sessionId,
+          question: appState.mcqQuestion.question,
+          optionsJSON: JSON.stringify(appState.mcqQuestion.options),
+          correctOption: appState.mcqQuestion.correctOption,
+          userAnswer: Array.isArray(appState.selectedOption) ? appState.selectedOption.join(',') : appState.selectedOption,
+          difficulty: appState.mcqQuestion.difficulty,
+          isRevision: appState.mcqQuestion.isRevision || false,
+          reviewCount: appState.mcqQuestion.reviewCount || 0,
+          topic: appState.mcqQuestion.topic,
+          subtopic: appState.mcqQuestion.subtopic
+        })
+      });
+
+      if (!learningResponse.ok) {
+        console.warn('⚠️ Could not save to learning engine:', await learningResponse.text());
+      }
+    } catch (learningErr) {
+      console.warn('⚠️ Learning engine save failed (non-blocking):', learningErr.message);
+    }
+
+    // Update score display
+    document.getElementById('mcq-score').textContent = appState.mcqScore;
+
+  } catch (error) {
+    console.error('❌ Error submitting MCQ answer:', error);
+    alert('Error submitting answer. Please try again.');
+  }
+}
     document.getElementById('mcq-next-btn').classList.remove('hidden');
 
     // Update score display

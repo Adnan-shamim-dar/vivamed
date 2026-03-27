@@ -1558,6 +1558,53 @@ Return ONLY valid JSON (no markdown, no backticks!) in this exact format:
 }
 
 // Fallback MCQs for when API fails (uses pre-allocated module-level pools)
+// Get MCQ from imported dataset (from test.csv)
+async function getFromMCQDatabase(difficulty = 'medium') {
+  return new Promise((resolve, reject) => {
+    const query = `SELECT * FROM mcq_questions WHERE difficulty = ? ORDER BY RANDOM() LIMIT 1`;
+
+    db.get(query, [difficulty], (err, row) => {
+      if (err) {
+        console.error('❌ MCQ database query failed:', err.message);
+        reject(err);
+      } else if (row) {
+        // Convert to expected format
+        const { topic, subtopic } = learningService.extractTopicFromQuestion(row.question, {
+          A: row.optionA,
+          B: row.optionB,
+          C: row.optionC,
+          D: row.optionD
+        });
+
+        const result = {
+          question: row.question,
+          options: {
+            A: row.optionA,
+            B: row.optionB,
+            C: row.optionC,
+            D: row.optionD
+          },
+          correctOption: row.correctOption, // Can be "A" or "A,C" for multi-answer
+          difficulty: row.difficulty,
+          questionType: 'mcq',
+          pdfBased: false,
+          source: 'mcq-dataset',
+          topic: topic,
+          subtopic: subtopic,
+          choice_type: row.choice_type || 'single', // 'single' or 'multi'
+          explanation: row.explanation || '',
+          subject: row.subject,
+          dbId: row.id
+        };
+        resolve(result);
+      } else {
+        console.warn(`⚠️ No MCQ found in database for difficulty: ${difficulty}`);
+        resolve(null);
+      }
+    });
+  });
+}
+
 function getFallbackMCQ(difficulty = 'medium') {
   // Fast O(1) lookup instead of if-else chain
   const mcqPool = FALLBACK_MCQ_POOLS[difficulty] || FALLBACK_MCQ_POOLS.medium;
@@ -3098,18 +3145,31 @@ app.post("/mcq-question", async (req, res) => {
         reviewCount: mcqLogic.reviewCount,
         revisedQuestionId: mcqLogic.revisedQuestionId,
         source: 'revision',
-        pdfBased: false
+        pdfBased: false,
+        choice_type: 'single'
       });
     }
 
-    // NEW QUESTION GENERATION (existing logic continues)
+    // PRIORITY 1: Try MCQ Database (test.csv imported questions)
+    try {
+      console.log('🗂️  Attempting to fetch from MCQ database...');
+      const dbQuestion = await getFromMCQDatabase(diff);
+      if (dbQuestion) {
+        console.log(`✅ MCQ from database: "${dbQuestion.question.substring(0, 60)}..."`);
+        return res.json({ ...dbQuestion, isRevision: false, reviewCount: 0 });
+      }
+    } catch (dbError) {
+      console.warn(`⚠️ MCQ database error: ${dbError.message}`);
+    }
+
+    // PRIORITY 2: API-based generation
     if (!OPENROUTER_API_KEY) {
-      console.warn('⚠️ No API key - returning fallback MCQ');
+      console.warn('⚠️ No API key - skipping AI generation, using fallback MCQ');
       const fallback = getFallbackMCQ(diff);
       return res.json({ ...fallback, isRevision: false, reviewCount: 0 });
     }
 
-    console.log('✅ API key detected, attempting to generate MCQ from AI...');  // NEW LOG
+    console.log('✅ API key detected, attempting AI MCQ generation...');
 
     // ADAPTIVE LEARNING: Select topic for this question (70% weak, 30% random)
     const forcedTopic = await learningService.selectTopicForQuestion(db, sessionId);
@@ -3118,7 +3178,6 @@ app.post("/mcq-question", async (req, res) => {
 
     try {
       // Generate MCQ using AI or PDF
-      // Determine if this is PDF-based or generic MCQ
       if (fileId) {
         // PDF-based MCQ (uses PDF chunks)
         console.log('📄 PDF-based MCQ mode');
@@ -3146,15 +3205,33 @@ app.post("/mcq-question", async (req, res) => {
   }
 });
 
-// POST: Evaluate MCQ answer
+// POST: Evaluate MCQ answer (supports single and multi-answer)
 app.post("/mcq-evaluate", async (req, res) => {
   try {
-    const { sessionId, selectedOption, correctOption, difficulty } = req.body;
+    const { sessionId, selectedOption, correctOption, difficulty, choice_type } = req.body;
+    const isMulti = choice_type === 'multi';
 
-    console.log(`📋 MCQ Evaluate - selected=${selectedOption}, correct=${correctOption}, difficulty=${difficulty}`);
+    console.log(`📋 MCQ Evaluate - selected=${selectedOption}, correct=${correctOption}, type=${choice_type || 'single'}`);
 
-    // Simple evaluation logic
-    const isCorrect = selectedOption === correctOption;
+    // Evaluation logic for single vs multi-answer
+    let isCorrect = false;
+
+    if (isMulti) {
+      // Multi-answer: compare sorted arrays
+      // selectedOption could be array ["A", "C"] or string "A,C"
+      const selected = Array.isArray(selectedOption)
+        ? selectedOption.sort()
+        : selectedOption.split(',').map(s => s.trim()).sort();
+
+      const correct = correctOption.split(',').map(s => s.trim()).sort();
+
+      isCorrect = JSON.stringify(selected) === JSON.stringify(correct);
+      console.log(`  Multi-answer check: selected=${selected.join(',')} vs correct=${correct.join(',')}`);
+    } else {
+      // Single-answer: direct comparison
+      isCorrect = selectedOption === correctOption;
+    }
+
     const score = isCorrect ? 10 : 0;
 
     // Save to database
@@ -3162,12 +3239,12 @@ app.post("/mcq-evaluate", async (req, res) => {
       db.run(
         `INSERT INTO attempts (sessionId, questionIndex, question, answer, score, selectedOption, correctOption, isMCQ, questionType, timestamp)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [sessionId, 0, 'MCQ', selectedOption, score, selectedOption, correctOption, 1, 'mcq', new Date().toISOString()],
+        [sessionId, 0, 'MCQ', Array.isArray(selectedOption) ? selectedOption.join(',') : selectedOption, score, selectedOption.toString(), correctOption, 1, choice_type || 'single', new Date().toISOString()],
         (err) => {
           if (err) {
             console.error('❌ Error saving MCQ attempt:', err.message);
           } else {
-            console.log(`✅ MCQ attempt saved (score: ${score})`);
+            console.log(`✅ MCQ attempt saved (score: ${score}, correct: ${isCorrect})`);
           }
         }
       );
@@ -3176,8 +3253,9 @@ app.post("/mcq-evaluate", async (req, res) => {
     res.json({
       isCorrect,
       score,
-      selectedOption,
+      selectedOption: Array.isArray(selectedOption) ? selectedOption : selectedOption,
       correctOption,
+      choice_type: choice_type || 'single',
       timestamp: new Date().toISOString()
     });
   } catch (error) {
