@@ -2,11 +2,14 @@ FROM node:22-slim
 
 WORKDIR /app
 
+# Install build tools for compiling native modules
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
+
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies (Railway builds on Linux, no GLIBC issues)
-RUN npm ci --only=production
+# Install dependencies fresh (builds sqlite3 for Linux)
+RUN npm install --only=production
 
 # Copy app
 COPY . .
