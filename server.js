@@ -1,7 +1,7 @@
 require('dotenv').config()
 console.log('🔥 SERVER.JS LOADED - VERSION 3')
 const express = require("express")
-const sqlite3 = require('sqlite3').verbose()
+const { initDb, saveDb, DbWrapper } = require('./db-wrapper')
 const multer = require('multer')
 const pdfParse = require('pdf-parse')
 const fs = require('fs').promises
@@ -153,10 +153,20 @@ async function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-const db = new sqlite3.Database('./data/progress.db', (err) => {
-  if (err) console.error('❌ Database error:', err);
-  else console.log('✅ Database connected');
-});
+let db = null;
+
+// Initialize database
+async function setupDatabase() {
+  try {
+    await initDb();
+    db = new DbWrapper();
+    console.log('✅ Database connected');
+    return true;
+  } catch (err) {
+    console.error('❌ Database error:', err);
+    return false;
+  }
+}
 
 // Create tables if they don't exist
 db.serialize(() => {
@@ -3472,16 +3482,19 @@ app.get('/api/dev/code-version', (req, res) => {
 app.use(express.static(__dirname))
 
 // Start server with graceful port fallback
-const PORT = process.env.PORT || 9996;
-const server = app.listen(PORT, () => {
-  console.log("\n🏥 Medical Viva Trainer");
-  console.log("📝 Questions available:", questionBank.length);
-  console.log(`✅ AI-Integrated Server running on http://localhost:${PORT}\n`);
-});
+async function startServer() {
+  await setupDatabase();
 
-// Handle port in use - try next available port
-server.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
+  const PORT = process.env.PORT || 9996;
+  const server = app.listen(PORT, () => {
+    console.log("\n🏥 Medical Viva Trainer");
+    console.log("📝 Questions available:", questionBank.length);
+    console.log(`✅ AI-Integrated Server running on http://localhost:${PORT}\n`);
+  });
+
+  // Handle port in use - try next available port
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
     console.error(`\n❌ ERROR: Port ${PORT} is already in use!`);
     console.error('\n🔧 SOLUTION: Kill old Node processes:');
     console.error('   • bash scripts/dev-safe.sh (Linux/Mac)');
@@ -3491,4 +3504,10 @@ server.on('error', (err) => {
     process.exit(1);
   }
   throw err;
+  });
+}
+
+startServer().catch(err => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
 });
