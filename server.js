@@ -2,6 +2,7 @@ require('dotenv').config()
 console.log('🔥 SERVER.JS LOADED - VERSION 3')
 const express = require("express")
 const { initDb, saveDb, DbWrapper } = require('./db-wrapper')
+const sqlite3 = require('sqlite3').verbose()
 const multer = require('multer')
 const pdfParse = require('pdf-parse')
 const fs = require('fs').promises
@@ -154,7 +155,7 @@ async function delay(ms) {
 }
 
 let db = null;
-let libraryDb = null;
+let libraryDb = null; // Will use native sqlite3 instead of sql.js
 
 // Initialize both databases
 async function setupDatabase() {
@@ -167,12 +168,19 @@ async function setupDatabase() {
     // Create all tables for main database
     createMainDatabaseTables();
 
-    // Initialize library database with separate sql.js instance
-    await initDb('library');
-    libraryDb = new DbWrapper('library');
-    console.log('✅ Library database connected');
+    // Initialize library database with NATIVE SQLITE3 (not sql.js)
+    const libraryPath = path.join(__dirname, 'data', 'library.db');
+    libraryDb = new sqlite3.Database(libraryPath, (err) => {
+      if (err) {
+        console.error('❌ Library database error:', err.message);
+      } else {
+        console.log('✅ Library database connected (native sqlite3)');
+        // Enable WAL mode for better concurrency
+        libraryDb.run('PRAGMA journal_mode = WAL');
+      }
+    });
 
-    // Create all tables for library database
+    // Create all tables for library database (using native sqlite3)
     createLibraryDatabaseTables();
 
     return true;
@@ -766,6 +774,14 @@ async function isQuestionTooSimilar(newQuestion, subject) {
 }
 
 // ========================================
+// SESSION-LEVEL QUESTION DEDUPLICATION
+// ========================================
+
+/**
+ * Create a simplified hash of a question for dedup checking
+ * Extracts first 5 key words to prevent exact repeats
+ */
+// ========================================
 // SAVE QUESTION TO LIBRARY (Memory-Efficient)
 // ========================================
 async function saveQuestionToLibrary(question, perfectAnswer, subject, difficulty, chunkText, sourceType = 'pdf-ai', sourcePdf = null, questionType = 'long-form', mcqOptions = null, correctOption = null) {
@@ -1030,6 +1046,90 @@ const FALLBACK_MCQ_POOLS = {
       options: { A: "Lower blood glucose levels", B: "Increase heart rate", C: "Boost immune response", D: "Speed up digestion" },
       correctOption: "A",
       explanation: "Insulin is a hormone that promotes glucose uptake from blood into cells, lowering blood glucose levels."
+    },
+    {
+      question: "How many chambers does the human heart have?",
+      options: { A: "Four", B: "Two", C: "Three", D: "Five" },
+      correctOption: "A",
+      explanation: "The heart has four chambers: right atrium, right ventricle, left atrium, and left ventricle."
+    },
+    {
+      question: "Which bone is the largest and strongest bone in the human body?",
+      options: { A: "Femur", B: "Tibia", C: "Humerus", D: "Fibula" },
+      correctOption: "A",
+      explanation: "The femur (thighbone) is the largest and strongest bone in the body, designed to bear body weight."
+    },
+    {
+      question: "What is the normal body temperature for a healthy adult?",
+      options: { A: "37°C (98.6°F)", B: "35°C (95°F)", C: "39°C (102°F)", D: "40°C (104°F)" },
+      correctOption: "A",
+      explanation: "Normal body temperature is approximately 37°C or 98.6°F when measured orally."
+    },
+    {
+      question: "How many bones are in the adult human skeleton?",
+      options: { A: "206", B: "186", C: "226", D: "266" },
+      correctOption: "A",
+      explanation: "Adults have 206 bones in their skeleton after bones fuse during development."
+    },
+    {
+      question: "What is the basic functional unit of the nervous system?",
+      options: { A: "Neuron", B: "Synapse", C: "Nerve", D: "Ganglion" },
+      correctOption: "A",
+      explanation: "The neuron is the fundamental functional and structural unit of the nervous system."
+    },
+    {
+      question: "Which vitamin is essential for blood clotting?",
+      options: { A: "Vitamin K", B: "Vitamin C", C: "Vitamin A", D: "Vitamin D" },
+      correctOption: "A",
+      explanation: "Vitamin K is necessary for the synthesis of clotting factors in the liver."
+    },
+    {
+      question: "What does pH measure in the body?",
+      options: { A: "Acidity or alkalinity", B: "Temperature", C: "Oxygen levels", D: "Sugar concentration" },
+      correctOption: "A",
+      explanation: "pH measures the concentration of hydrogen ions and indicates whether a solution is acidic or alkaline."
+    },
+    {
+      question: "Which hormone is produced by the pancreas?",
+      options: { A: "Insulin", B: "Adrenaline", C: "Thyroxine", D: "Testosterone" },
+      correctOption: "A",
+      explanation: "Insulin is produced by beta cells in the pancreatic islets of Langerhans."
+    },
+    {
+      question: "What is the main function of the liver?",
+      options: { A: "Detoxification and metabolism", B: "Production of hormones", C: "Gas exchange", D: "Nutrient absorption" },
+      correctOption: "A",
+      explanation: "The liver detoxifies blood and metabolizes nutrients, medications, and other substances."
+    },
+    {
+      question: "Which blood cells are primarily responsible for fighting infection?",
+      options: { A: "White blood cells", B: "Red blood cells", C: "Platelets", D: "Plasma cells" },
+      correctOption: "A",
+      explanation: "White blood cells (leukocytes) are immune cells that identify and destroy pathogens."
+    },
+    {
+      question: "What is the normal range for diastolic blood pressure?",
+      options: { A: "60-80 mmHg", B: "90-120 mmHg", C: "40-50 mmHg", D: "100-130 mmHg" },
+      correctOption: "A",
+      explanation: "Normal diastolic pressure (bottom number) is less than 80 mmHg in healthy adults."
+    },
+    {
+      question: "Which gland controls the body's growth and metabolism?",
+      options: { A: "Thyroid gland", B: "Pancreas", C: "Pituitary gland", D: "Adrenal gland" },
+      correctOption: "A",
+      explanation: "The thyroid gland produces thyroid hormone which regulates metabolism and growth."
+    },
+    {
+      question: "What is the primary function of the diaphragm?",
+      options: { A: "Assist in breathing", B: "Filter blood", C: "Regulate digestion", D: "Produce hormones" },
+      correctOption: "A",
+      explanation: "The diaphragm is the main muscle for inspiration, contracting to increase thoracic volume."
+    },
+    {
+      question: "Which type of blood cell carries platelets?",
+      options: { A: "Megakaryocyte", B: "Lymphocyte", C: "Macrophage", D: "Erythrocyte" },
+      correctOption: "A",
+      explanation: "Megakaryocytes are bone marrow cells that produce and release platelets into the blood."
     }
   ],
   medium: [
@@ -1080,6 +1180,144 @@ const FALLBACK_MCQ_POOLS = {
       options: { A: "Ultrafiltration of blood", B: "Reabsorption of glucose", C: "Secretion of waste", D: "Production of hormones" },
       correctOption: "A",
       explanation: "The glomerulus filters blood under pressure to produce filtrate, which becomes urine after selective reabsorption."
+    },
+    {
+      question: "Which ion is primarily responsible for cardiac action potential?",
+      options: { A: "Calcium", B: "Potassium", C: "Sodium", D: "Magnesium" },
+      correctOption: "C",
+      explanation: "Sodium influx during depolarization drives the cardiac action potential upstroke in ventricular myocytes."
+    },
+    {
+      question: "What is the primary source of glucose during fasting?",
+      options: { A: "Hepatic glycogenolysis", B: "Muscle glycolysis", C: "Renal gluconeogenesis", D: "Intestinal absorption" },
+      correctOption: "A",
+      explanation: "The liver breaks down glycogen to maintain blood glucose during the fasting state."
+    },
+    {
+      question: "Which antibody is most important in mucosal immunity?",
+      options: { A: "IgA", B: "IgG", C: "IgM", D: "IgE" },
+      correctOption: "A",
+      explanation: "IgA is the primary antibody in mucosal secretions protecting respiratory and gastrointestinal tracts."
+    },
+    {
+      question: "What is the first step in the coagulation cascade?",
+      options: { A: "Tissue factor activation", B: "Prothrombin activation", C: "Fibrin formation", D: "Platelet aggregation" },
+      correctOption: "A",
+      explanation: "Tissue factor (TF) binding to Factor VII initiates the extrinsic pathway of the coagulation cascade."
+    },
+    {
+      question: "Which ventricle performs most of the heart's pumping work?",
+      options: { A: "Left ventricle", B: "Right ventricle", C: "Left atrium", D: "Right atrium" },
+      correctOption: "A",
+      explanation: "The left ventricle pumps oxygenated blood to the systemic circulation against high resistance."
+    },
+    {
+      question: "What is the primary mechanism of action of statins?",
+      options: { A: "HMG-CoA reductase inhibition", B: "Lipoprotein lipase activation", C: "VLDL synthesis increase", D: "LDL receptor decrease" },
+      correctOption: "A",
+      explanation: "Statins inhibit HMG-CoA reductase to reduce hepatic cholesterol synthesis and LDL levels."
+    },
+    {
+      question: "Which hormone is primarily responsible for increasing metabolic rate?",
+      options: { A: "Thyroid hormone", B: "Glucagon", C: "Epinephrine", D: "Cortisol" },
+      correctOption: "A",
+      explanation: "Thyroid hormones T3 and T4 increase metabolic rate and energy consumption throughout the body."
+    },
+    {
+      question: "What is the normal glomerular filtration rate in healthy adults?",
+      options: { A: "100-120 mL/min", B: "50-75 mL/min", C: "150-200 mL/min", D: "20-40 mL/min" },
+      correctOption: "A",
+      explanation: "Normal GFR is approximately 100-120 mL/min/1.73m², declining with age."
+    },
+    {
+      question: "Which type of collagen is most abundant in hyaline cartilage?",
+      options: { A: "Type II collagen", B: "Type I collagen", C: "Type III collagen", D: "Type IV collagen" },
+      correctOption: "A",
+      explanation: "Type II collagen comprises 50% of the dry weight of hyaline cartilage."
+    },
+    {
+      question: "What is the primary mechanism of aspirin's antiplatelet effect?",
+      options: { A: "COX-1 inhibition", B: "ADP receptor blockade", C: "Thromboxane A2 production increase", D: "Platelet adhesion increase" },
+      correctOption: "A",
+      explanation: "Aspirin irreversibly acetylates COX-1, preventing thromboxane A2 synthesis and platelet aggregation."
+    },
+    {
+      question: "Which enzyme is responsible for breaking down acetylcholine?",
+      options: { A: "Acetylcholinesterase", B: "Monoamine oxidase", C: "COMT", D: "Alkaline phosphatase" },
+      correctOption: "A",
+      explanation: "Acetylcholinesterase hydrolyzes acetylcholine in the synaptic cleft, terminating neuromuscular signaling."
+    },
+    {
+      question: "What is the blood type of a person with neither A nor B antigens?",
+      options: { A: "Type O", B: "Type AB", C: "Type A", D: "Type B" },
+      correctOption: "A",
+      explanation: "Type O blood has neither A nor B antigens, making it the universal donor."
+    },
+    {
+      question: "Which nervous system division increases heart rate?",
+      options: { A: "Sympathetic nervous system", B: "Parasympathetic nervous system", C: "Somatic nervous system", D: "Enteric nervous system" },
+      correctOption: "A",
+      explanation: "Sympathetic stimulation via beta-1 adrenergic receptors increases heart rate and contractility."
+    },
+    {
+      question: "What is the primary source of HDL cholesterol production?",
+      options: { A: "The liver", B: "The intestines", C: "The arteries", D: "The adipose tissue" },
+      correctOption: "A",
+      explanation: "The liver synthesizes apolipoprotein A-I, the major protein component of HDL particles."
+    },
+    {
+      question: "Which vitamin deficiency causes pernicious anemia?",
+      options: { A: "Vitamin B12 deficiency", B: "Folate deficiency", C: "Iron deficiency", D: "Vitamin C deficiency" },
+      correctOption: "A",
+      explanation: "Vitamin B12 (cobalamin) is essential for DNA synthesis; deficiency causes megaloblastic anemia."
+    },
+    {
+      question: "What is the primary function of T regulatory cells?",
+      options: { A: "Suppress immune responses", B: "Kill infected cells", C: "Produce antibodies", D: "Present antigens" },
+      correctOption: "A",
+      explanation: "T regulatory cells secrete IL-10 and TGF-beta to suppress excessive immune responses."
+    },
+    {
+      question: "Which artery supplies blood to the  left anterior descending territory?",
+      options: { A: "Left main coronary", B: "Right coronary", C: "Left circumflex", D: "Left marginal" },
+      correctOption: "A",
+      explanation: "The left anterior descending artery originates from the left main coronary artery."
+    },
+    {
+      question: "What is the primary role of albumin in the blood?",
+      options: { A: "Maintain oncotic pressure", B: "Transport oxygen", C: "Activate complement", D: "Fight infections" },
+      correctOption: "A",
+      explanation: "Albumin is the major plasma protein providing 80% of oncotic pressure."
+    },
+    {
+      question: "Which hormone suppresses gastric acid secretion?",
+      options: { A: "Somatostatin", B: "Gastrin", C: "Secretin", D: "Cholecystokinin" },
+      correctOption: "A",
+      explanation: "Somatostatin inhibits gastric acid secretion and reduces gastrin release from G cells."
+    },
+    {
+      question: "What is the primary mechanism of glucose reabsorption in the proximal tubule?",
+      options: { A: "Active transport via SGLT2", B: "Passive diffusion", C: "Facilitated diffusion", D: "Pinocytosis" },
+      correctOption: "A",
+      explanation: "SGLT2 actively transports glucose against its concentration gradient in the early proximal tubule."
+    },
+    {
+      question: "Which cytokine is the primary mediator of fever?",
+      options: { A: "IL-1", B: "IL-6", C: "IL-13", D: "TNF-alpha" },
+      correctOption: "A",
+      explanation: "Interleukin-1 is released by macrophages and acts on the hypothalamus to increase body temperature set point."
+    },
+    {
+      question: "What is the normal fasting blood glucose level?",
+      options: { A: "70-100 mg/dL", B: "100-150 mg/dL", C: "50-70 mg/dL", D: "150-200 mg/dL" },
+      correctOption: "A",
+      explanation: "Normal fasting glucose is less than 100 mg/dL; 100-125 mg/dL indicates impaired fasting glucose."
+    },
+    {
+      question: "Which protein is the primary regulator of iron metabolism?",
+      options: { A: "Hepcidin", B: "Ferritin", C: "Transferrin", D: "Hemoglobin" },
+      correctOption: "A",
+      explanation: "Hepcidin is a hormone that regulates iron absorption and distribution by inhibiting ferroportin."
     }
   ],
   hard: [
@@ -1130,6 +1368,102 @@ const FALLBACK_MCQ_POOLS = {
       options: { A: "Renal hypoperfusion from systemic vasodilation", B: "Direct tubular toxin", C: "Glomerulonephritis", D: "Obstructive nephropathy" },
       correctOption: "A",
       explanation: "Sepsis-induced vasodilation reduces renal perfusion pressure, causing ischemic injury to proximal tubules."
+    },
+    {
+      question: "Which genetic mutation causes familial hypercholesterolemia?",
+      options: { A: "LDL receptor gene mutation", B: "APOB gene mutation", C: "PCSK9 gene mutation", D: "APOE gene mutation" },
+      correctOption: "A",
+      explanation: "Homozygous or heterozygous mutations in the LDL receptor gene reduce hepatic uptake of LDL cholesterol."
+    },
+    {
+      question: "In hyperkalemia, what is the mechanism of cardiac toxicity?",
+      options: { A: "Decreased resting membrane potential depolarization", B: "Increased calcium influx", C: "Reduced sodium channels", D: "Enhanced parasympathetic tone" },
+      correctOption: "A",
+      explanation: "Elevated extracellular K+ reduces the resting membrane potential, increasing cardiac excitability and arrhythmia risk."
+    },
+    {
+      question: "What is the pathophysiology of thrombotic thrombocytopenic purpura?",
+      options: { A: "ADAMTS13 deficiency causing VWF accumulation", B: "Immune-mediated platelet destruction", C: "Vitamin K deficiency", D: "Hepatic insufficiency" },
+      correctOption: "A",
+      explanation: "TTP results from ADAMTS13 deficiency, allowing uncleaved VWF multimers to cause microthrombi."
+    },
+    {
+      question: "Which mechanism explains lactic acidosis in sepsis?",
+      options: { A: "Tissue hypoperfusion and anaerobic metabolism", B: "Impaired glucose uptake", C: "Liver failure", D: "Ketone body production" },
+      correctOption: "A",
+      explanation: "Septic shock causes tissue hypoperfusion, forcing shift to anaerobic metabolism and lactate production."
+    },
+    {
+      question: "What is the primary mechanism of acute coronary syndrome in vasospastic angina?",
+      options: { A: "Coronary artery vasospasm", B: "Atherosclerotic plaque rupture", C: "Coronary artery dissection", D: "Myocardial bridging" },
+      correctOption: "A",
+      explanation: "Vasospastic angina results from episodic coronary artery constriction, often at rest without fixed obstruction."
+    },
+    {
+      question: "In pulmonary hypertension, which pathologic finding is most specific?",
+      options: { A: "Medial hypertrophy of pulmonary arteries", B: "Left ventricular hypertrophy", C: "Pleural effusion", D: "Pulmonary edema" },
+      correctOption: "A",
+      explanation: "Smooth muscle cell proliferation and medial wall thickening of pulmonary arteries characterize primary pulmonary hypertension."
+    },
+    {
+      question: "What is the mechanism of vancomycin resistance in enterococcus?",
+      options: { A: "Altered D-Ala-D-Lac peptidoglycan precursors", B: "Beta-lactamase production", C: "Ribosomal methylation", D: "Efflux pump overexpression" },
+      correctOption: "A",
+      explanation: "Vancomycin-resistant enterococci produce modified cell wall precursors that vancomycin cannot bind."
+    },
+    {
+      question: "In hemolytic uremic syndrome, what is the primary pathogenic mechanism?",
+      options: { A: "Verotoxin-induced endothelial damage", B: "Immune complex deposition", C: "Direct parasitic invasion", D: "Bacterial exotoxin production" },
+      correctOption: "A",
+      explanation: "Shiga toxin (verotoxin) from STEC causes endothelial damage in renal and systemic microvasculature."
+    },
+    {
+      question: "Which mechanism explains aspiration pneumonia in Mendelson syndrome?",
+      options: { A: "Gastric acid-induced chemical pneumonitis", B: "Bacterial overgrowth", C: "Anaphylactic reaction", D: "Direct airway blockage" },
+      correctOption: "A",
+      explanation: "Aspiration of gastric contents causes acute chemical pneumonitis from HCl-induced direct lung injury."
+    },
+    {
+      question: "In acute liver failure, what is the primary mechanism of hepatic encephalopathy?",
+      options: { A: "Ammonia accumulation and failure of urea cycle", B: "Hypoglycemia from failed gluconeogenesis", C: "Portal hypertension", D: "Fat deposition" },
+      correctOption: "A",
+      explanation: "Loss of hepatic function impairs ammonia metabolism, leading to hyperammonemia and CNS dysfunction."
+    },
+    {
+      question: "What is the primary mechanism of action of glitazones?",
+      options: { A: "PPAR-gamma activation", B: "PPAR-alpha activation", C: "Insulin secretion increase", D: "GLP-1 receptor agonism" },
+      correctOption: "A",
+      explanation: "Thiazolidinediones activate peroxisome proliferator-activated receptor-gamma to improve insulin sensitivity."
+    },
+    {
+      question: "In spontaneous bacterial peritonitis, why is albumin replacement beneficial?",
+      options: { A: "Improves renal perfusion through oncotic pressure", B: "Eliminates bacterial toxins", C: "Reduces inflammation directly", D: "Increases intestinal motility" },
+      correctOption: "A",
+      explanation: "Albumin restores oncotic pressure and renal perfusion in cirrhotic patients with SBP."
+    },
+    {
+      question: "What is the mechanism of cephalosporin allergy cross-reactivity with penicillins?",
+      options: { A: "Shared beta-lactam ring structure", B: "Identical side chain composition", C: "Bacterial cell wall similarity", D: "Intestinal microbiota activation" },
+      correctOption: "A",
+      explanation: "Both beta-lactams contain the beta-lactam ring that can cross-link to serum proteins causing sensitization."
+    },
+    {
+      question: "In membranoproliferative glomerulonephritis, what complement pathway is typically activated?",
+      options: { A: "Alternative pathway", B: "Classical pathway", C: "Lectin pathway", D: "Terminal pathway only" },
+      correctOption: "A",
+      explanation: "MPGN usually involves alternative complement pathway activation with C3 deposition on electron microscopy."
+    },
+    {
+      question: "What is the pathophysiology of myasthenia gravis?",
+      options: { A: "Autoimmune antibodies against nicotinic acetylcholine receptors", B: "Viral infection of motor neurons", C: "Genetic myosin mutations", D: "Spinal cord demyelination" },
+      correctOption: "A",
+      explanation: "IgG autoantibodies bind to nicotinic acetylcholine receptors, blocking neuromuscular transmission."
+    },
+    {
+      question: "In acute angle-closure glaucoma, what is the primary mechanism of elevated intraocular pressure?",
+      options: { A: "Pupillary block from iris prolapse", B: "Increased aqueous humor production", C: "Decreased episcleral venous drainage", D: "Zonular fiber tension increase" },
+      correctOption: "A",
+      explanation: "Forward iris displacement blocks aqueous humor drainage through the trabeculae."
     }
   ]
 };
@@ -2561,6 +2895,107 @@ app.post("/questions/batch", async (req, res) => {
   }
 });
 
+// ========================================
+// GET QUESTION FROM LIBRARY (14K+ imported questions!)
+// ========================================
+// Generate MCQ options from library answer WITHOUT AI (fast & reliable)
+function generateMCQFromLibraryQuestion(libraryQuestion) {
+  // Simple generic distractors that don't require AI
+  const distractors = [
+    "It is not affected by any external factors",
+    "The condition is always fatal and untreatable",
+    "This only occurs in children under 5 years old",
+    "It is a purely genetic disorder with no environmental factors",
+    "This only occurs in developed countries",
+    "The treatment requires surgical intervention in all cases",
+    "It has no established medical treatment",
+    "This is contagious through airborne transmission",
+    "It primarily affects women over 65 years old",
+    "The causes are completely unknown to science",
+    "This condition cannot be prevented",
+    "It requires hospitalization in all cases"
+  ];
+
+  // Randomly pick 3 different distractors
+  const selectedDistracters = [];
+  const used = new Set();
+  while (selectedDistracters.length < 3) {
+    const index = Math.floor(Math.random() * distractors.length);
+    if (!used.has(index)) {
+      selectedDistracters.push(distractors[index]);
+      used.add(index);
+    }
+  }
+
+  // Shuffle options: create array with correct answer + 3 distractors
+  const allOptions = [
+    libraryQuestion.explanation,
+    ...selectedDistracters
+  ];
+
+  // Fisher-Yates shuffle
+  for (let i = allOptions.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [allOptions[i], allOptions[j]] = [allOptions[j], allOptions[i]];
+  }
+
+  // Convert to A, B, C, D format
+  const options = {
+    A: allOptions[0],
+    B: allOptions[1],
+    C: allOptions[2],
+    D: allOptions[3]
+  };
+
+  // Find which option is correct
+  const correctOption = Object.keys(options).find(key => options[key] === libraryQuestion.explanation);
+
+  return {
+    question: libraryQuestion.question,
+    options: options,
+    correctOption: correctOption,
+    explanation: libraryQuestion.explanation,
+    difficulty: libraryQuestion.difficulty,
+    subject: libraryQuestion.subject,
+    source: 'library',
+    questionType: 'mcq',
+    pdfBased: false
+  };
+}
+
+async function getQuestionFromLibrary(difficulty = 'medium') {
+  return new Promise((resolve, reject) => {
+    // ✨ TRUE RANDOMIZATION: Use ORDER BY RANDOM() LIMIT 1
+    // This forces SQLite to randomize the entire table then grab ONE question
+    // Much better than LIMIT 1000 + JavaScript random (which creates predictable subsets)
+    libraryDb.get(
+      `SELECT question, perfect_answer as explanation, difficulty, subject
+       FROM library_questions
+       WHERE difficulty = ?
+       ORDER BY RANDOM()
+       LIMIT 1`,
+      [difficulty],
+      (err, row) => {
+        if (err) {
+          console.error('❌ Library query error:', err.message);
+          reject(err);
+        } else if (row) {
+          console.log(`✅ Got RANDOM question from library (${difficulty}), generating MCQ options...`);
+          try {
+            const mcqQuestion = generateMCQFromLibraryQuestion(row);
+            resolve(mcqQuestion);
+          } catch (mcqError) {
+            console.error('❌ Failed to generate MCQ options:', mcqError.message);
+            reject(mcqError);
+          }
+        } else {
+          reject(new Error(`No ${difficulty} questions in library`));
+        }
+      }
+    );
+  });
+}
+
 // POST: Evaluate answer
 app.post("/evaluate", async (req, res) => {
   // Accept both 'answer' and 'userAnswer' for flexibility
@@ -2682,18 +3117,19 @@ app.post("/mcq-question", async (req, res) => {
     let mcqQuestion;
 
     try {
+      // Generate MCQ using AI or PDF
       // Determine if this is PDF-based or generic MCQ
       if (fileId) {
-        // PDF-based MCQ (uses PDF chunks, not topic bias)
+        // PDF-based MCQ (uses PDF chunks)
         console.log('📄 PDF-based MCQ mode');
         mcqQuestion = await generatePDFBasedMCQQuestion(sessionId, fileId, diff);
       } else {
-        // Generic MCQ (could be biased toward weak topic)
-        console.log('🤖 Generic MCQ mode' + (forcedTopic ? ` - topic bias: ${forcedTopic}` : ''));
+        // Generic MCQ (AI generated with optional topic bias)
+        console.log('🤖 Generic AI MCQ mode' + (forcedTopic ? ` - topic bias: ${forcedTopic}` : ''));
         mcqQuestion = await generateGenericAIMCQQuestion(diff);
       }
 
-      console.log('✅ MCQ generated successfully from API, returning...');  // NEW LOG
+      console.log('✅ MCQ returned, source: ' + (mcqQuestion.source || 'ai'));
       return res.json({ ...mcqQuestion, isRevision: false, reviewCount: 0 });
     } catch (generationError) {
       // Generation failed - gracefully fall back to fallback pool
@@ -3683,7 +4119,7 @@ app.use(express.static(__dirname))
 async function startServer() {
   await setupDatabase();
 
-  const PORT = process.env.PORT || 8080;
+  const PORT = process.env.PORT || 7777;
   const server = app.listen(PORT, () => {
     console.log("\n🏥 Medical Viva Trainer");
     console.log("📝 Questions available:", questionBank.length);

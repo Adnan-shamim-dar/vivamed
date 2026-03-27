@@ -809,6 +809,22 @@
         <div class="text-2xl font-bold text-blue-400">Score: <span id="mcq-score">0</span></div>
       </div>
 
+      <!-- Difficulty Selector (before starting) -->
+      <div id="difficultySelector" class="mb-8 p-6 rounded-2xl glass-effect border border-white/10">
+        <p class="text-gray-300 text-sm mb-4">Select difficulty level:</p>
+        <div class="flex gap-3 flex-wrap">
+          <button onclick="setMCQDifficulty('easy')" class="difficulty-btn px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white font-semibold transition-smooth" data-difficulty="easy">
+            🟢 Easy
+          </button>
+          <button onclick="setMCQDifficulty('medium')" class="difficulty-btn px-4 py-2 rounded-lg bg-yellow-600 hover:bg-yellow-500 text-white font-semibold transition-smooth active" data-difficulty="medium">
+            🟡 Medium
+          </button>
+          <button onclick="setMCQDifficulty('hard')" class="difficulty-btn px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-semibold transition-smooth" data-difficulty="hard">
+            🔴 Hard
+          </button>
+        </div>
+      </div>
+
       <!-- Question Card -->
       <div class="p-8 rounded-2xl glass-effect border border-white/10 mb-8">
         <div class="mb-4">
@@ -955,6 +971,7 @@ let appState = {
   mcqQuestionNumber: 0,              // Question 1 of 18
   mcqTotalQuestions: 18,             // Total questions in session (unlimited like practice)
   mcqScore: 0,                       // Running score
+  mcqCurrentDifficulty: 'medium',    // Current difficulty selection (easy/medium/hard)
   mcqPreloadCache: [],               // Preloaded MCQ questions for instant transitions
   mcqPreloadInProgress: false,       // Currently preloading MCQ questions?
 
@@ -2323,7 +2340,7 @@ async function preloadMCQQuestions(count = 5, parallel = false) {
           body: JSON.stringify({
             sessionId: appState.sessionId,
             fileId: fileId,
-            difficulty: ['easy', 'medium', 'hard'][Math.floor(Math.random() * 3)]  // VARY difficulty
+            difficulty: appState.mcqCurrentDifficulty  // Use selected difficulty
           })
         }).then(r => r.ok ? r.json() : null).catch(e => {
           console.warn(`⚠️ MCQ preload ${i + 1} failed:`, e.message);
@@ -2348,7 +2365,7 @@ async function preloadMCQQuestions(count = 5, parallel = false) {
             body: JSON.stringify({
               sessionId: appState.sessionId,
               fileId: fileId,
-              difficulty: ['easy', 'medium', 'hard'][Math.floor(Math.random() * 3)]  // VARY difficulty
+              difficulty: appState.mcqCurrentDifficulty  // Use selected difficulty
             })
           });
 
@@ -3406,10 +3423,34 @@ function getRandomFallbackMCQ() {
 // MCQ MODE FUNCTIONS (NEW)
 // ========================================
 
+// Set MCQ Difficulty Level
+function setMCQDifficulty(level) {
+  if (!['easy', 'medium', 'hard'].includes(level)) {
+    console.warn('Invalid difficulty level:', level);
+    return;
+  }
+
+  appState.mcqCurrentDifficulty = level;
+  console.log('✅ MCQ difficulty set to:', level);
+
+  // Update button styling
+  document.querySelectorAll('.difficulty-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.difficulty === level);
+    const isCurrent = btn.dataset.difficulty === level;
+    btn.style.opacity = isCurrent ? '1' : '0.6';
+  });
+
+  // Only load next question if one is already loaded (changing difficulty mid-session)
+  // Don't load on initial selection
+  if (appState.mcqQuestion) {
+    nextMCQQuestion();
+  }
+}
+
 // Load MCQ Question from server
 async function loadMCQQuestion() {
   try {
-    console.log('📋 Loading MCQ question...');
+    console.log('📋 Loading MCQ question (difficulty: ' + appState.mcqCurrentDifficulty + ')...');
 
     // Determine fileId if exists
     const fileId = appState.currentModeUploadedPDF?.fileId || appState.mcqUploadedPDF?.fileId || null;
@@ -3459,7 +3500,7 @@ async function loadMCQQuestion() {
             body: JSON.stringify({
               sessionId: appState.sessionId,
               fileId: fileId,
-              difficulty: 'medium'
+              difficulty: appState.mcqCurrentDifficulty
             })
           });
 

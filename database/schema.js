@@ -148,6 +148,7 @@ async function createProgressTables(db) {
     `ALTER TABLE sessions ADD COLUMN wrongAnswers INTEGER DEFAULT 0`,
     `ALTER TABLE sessions ADD COLUMN totalAttempts INTEGER DEFAULT 0`,
     `ALTER TABLE sessions ADD COLUMN username TEXT`,  // NEW
+    `ALTER TABLE sessions ADD COLUMN recentQuestions TEXT DEFAULT '[]'`,  // NEW: JSON array of last 10 questions asked
     `ALTER TABLE attempts ADD COLUMN chunkIndex INTEGER`,
     `ALTER TABLE attempts ADD COLUMN pdfBased INTEGER DEFAULT 0`,
     `ALTER TABLE attempts ADD COLUMN difficulty TEXT`,
