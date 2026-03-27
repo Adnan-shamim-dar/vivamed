@@ -131,43 +131,31 @@ function extractTopicFromQuestion(question, options = {}) {
  * @param {string} subtopic - Subtopic within topic
  * @param {boolean} isCorrect - Whether user answered correctly
  */
-async function updateTopicPerformance(db, sessionId, topic, subtopic, isCorrect) {
+function updateTopicPerformance(db, sessionId, topic, subtopic, isCorrect) {
   try {
     // Get current performance for this topic
-    const current = await new Promise((resolve, reject) => {
-      db.get(
-        `SELECT total_attempts, correct_attempts FROM topic_performance
-         WHERE sessionId = ? AND topic = ? AND subtopic = ?`,
-        [sessionId, topic, subtopic || 'General'],
-        (err, row) => {
-          if (err) reject(err);
-          else resolve(row);
-        }
-      );
-    });
+    const current = db.prepare(
+      `SELECT total_attempts, correct_attempts FROM topic_performance
+       WHERE sessionId = ? AND topic = ? AND subtopic = ?`
+    ).get(sessionId, topic, subtopic || 'General');
 
     const totalAttempts = (current?.total_attempts || 0) + 1;
     const correctAttempts = (current?.correct_attempts || 0) + (isCorrect ? 1 : 0);
     const accuracy = (correctAttempts / totalAttempts * 100).toFixed(2);
 
     // Insert or update topic performance
-    await new Promise((resolve, reject) => {
-      db.run(
-        `INSERT INTO topic_performance (sessionId, topic, subtopic, total_attempts, correct_attempts, accuracy, last_attempted)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(sessionId, topic, subtopic) DO UPDATE SET
-           total_attempts = ?,
-           correct_attempts = ?,
-           accuracy = ?,
-           last_attempted = ?`,
-        [sessionId, topic, subtopic || 'General', totalAttempts, correctAttempts, accuracy, new Date().toISOString(),
-         totalAttempts, correctAttempts, accuracy, new Date().toISOString()],
-        (err) => {
-          if (err) reject(err);
-          else resolve();
-        }
-      );
-    });
+    db.prepare(
+      `INSERT INTO topic_performance (sessionId, topic, subtopic, total_attempts, correct_attempts, accuracy, last_attempted)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(sessionId, topic, subtopic) DO UPDATE SET
+         total_attempts = ?,
+         correct_attempts = ?,
+         accuracy = ?,
+         last_attempted = ?`
+    ).run(
+      sessionId, topic, subtopic || 'General', totalAttempts, correctAttempts, accuracy, new Date().toISOString(),
+      totalAttempts, correctAttempts, accuracy, new Date().toISOString()
+    );
 
     return { totalAttempts, correctAttempts, accuracy };
   } catch (error) {
@@ -183,20 +171,13 @@ async function updateTopicPerformance(db, sessionId, topic, subtopic, isCorrect)
  * @param {string} sessionId - Session ID
  * @returns {Promise<array>} Array of weak topics sorted by lowest accuracy
  */
-async function getWeakTopics(db, sessionId) {
+function getWeakTopics(db, sessionId) {
   try {
-    return await new Promise((resolve, reject) => {
-      db.all(
-        `SELECT topic, subtopic, accuracy, total_attempts FROM topic_performance
-         WHERE sessionId = ? AND accuracy < 70
-         ORDER BY accuracy ASC`,
-        [sessionId],
-        (err, rows) => {
-          if (err) reject(err);
-          else resolve(rows || []);
-        }
-      );
-    });
+    return db.prepare(
+      `SELECT topic, subtopic, accuracy, total_attempts FROM topic_performance
+       WHERE sessionId = ? AND accuracy < 70
+       ORDER BY accuracy ASC`
+    ).all(sessionId) || [];
   } catch (error) {
     console.warn('⚠️ Error fetching weak topics:', error.message);
     return []; // Fallback: no weak topics (will generate random question)
@@ -210,9 +191,9 @@ async function getWeakTopics(db, sessionId) {
  * @param {string} sessionId - Session ID
  * @returns {Promise<string|null>} Topic string or null (for random)
  */
-async function selectTopicForQuestion(db, sessionId) {
+function selectTopicForQuestion(db, sessionId) {
   try {
-    const weakTopics = await getWeakTopics(db, sessionId);
+    const weakTopics = getWeakTopics(db, sessionId);
 
     // 70% chance: Pick weak topic
     if (weakTopics.length > 0 && Math.random() < 0.7) {

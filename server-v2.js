@@ -14,7 +14,7 @@ const multer = require('multer');
 const fs = require('fs').promises;
 const fsSync = require('fs');
 const pdfParse = require('pdf-parse');
-const sqlite3 = require('sqlite3').verbose();
+
 
 // ========================================
 // MODULE IMPORTS - ALL MODULARIZED CODE
@@ -105,39 +105,42 @@ const upload = multer({
 // ========================================
 
 /**
- * Promise wrapper for db.all
+ * Synchronous better-sqlite3 wrapper for SELECT all rows.
+ * Returns a Promise for compatibility with existing async/await callers.
  */
 function dbAll(database, sql, params = []) {
-  return new Promise((resolve, reject) => {
-    database.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows || []);
-    });
-  });
+  try {
+    const rows = database.prepare(sql).all(params);
+    return Promise.resolve(rows || []);
+  } catch (err) {
+    return Promise.reject(err);
+  }
 }
 
 /**
- * Promise wrapper for db.get
+ * Synchronous better-sqlite3 wrapper for SELECT single row.
+ * Returns a Promise for compatibility with existing async/await callers.
  */
 function dbGet(database, sql, params = []) {
-  return new Promise((resolve, reject) => {
-    database.get(sql, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
-    });
-  });
+  try {
+    const row = database.prepare(sql).get(params);
+    return Promise.resolve(row || null);
+  } catch (err) {
+    return Promise.reject(err);
+  }
 }
 
 /**
- * Promise wrapper for db.run
+ * Synchronous better-sqlite3 wrapper for INSERT/UPDATE/DELETE.
+ * Returns a Promise for compatibility with existing async/await callers.
  */
 function dbRun(database, sql, params = []) {
-  return new Promise((resolve, reject) => {
-    database.run(sql, params, function(err) {
-      if (err) reject(err);
-      else resolve({ id: this.lastID, changes: this.changes });
-    });
-  });
+  try {
+    const result = database.prepare(sql).run(params);
+    return Promise.resolve({ id: result.lastInsertRowid, changes: result.changes });
+  } catch (err) {
+    return Promise.reject(err);
+  }
 }
 
 // ========================================

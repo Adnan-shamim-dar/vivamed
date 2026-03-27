@@ -13,7 +13,7 @@
  */
 
 require('dotenv').config();
-const sqlite3 = require('sqlite3').verbose();
+const Database = require('better-sqlite3');
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const AI_MODEL = process.env.AI_MODEL || 'gpt-oss-120b';
@@ -24,13 +24,11 @@ if (!OPENROUTER_API_KEY) {
 }
 
 // Database connection
-const db = new sqlite3.Database('./data/library.db', (err) => {
-  if (err) {
-    console.error('❌ Database error:', err);
-    process.exit(1);
-  }
-  console.log('✅ Connected to library database');
-});
+const fs = require('fs');
+try { fs.mkdirSync('./data', { recursive: true }); } catch (e) { /* already exists */ }
+const db = new Database('./data/library.db');
+db.pragma('journal_mode = WAL');
+console.log('✅ Connected to library database');
 
 // Delay helper
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -123,37 +121,30 @@ Return ONLY valid JSON (no markdown, no backticks!) in this exact format:
 }
 
 // Insert question into database
-async function insertQuestion(question, options, correctOption, explanation, difficulty, sourceMode) {
-  return new Promise((resolve, reject) => {
-    db.run(
+function insertQuestion(question, options, correctOption, explanation, difficulty, sourceMode) {
+  try {
+    db.prepare(
       `INSERT OR IGNORE INTO library_questions
        (subject, question, perfect_answer, difficulty, tags, source_type, questionType, mcqOptions, correctOption)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        sourceMode.charAt(0).toUpperCase() + sourceMode.slice(1), // subject based on mode
-        question,
-        explanation,
-        difficulty,
-        JSON.stringify(['medical', 'viva', sourceMode]),
-        'mcq-preloaded',
-        'mcq',
-        JSON.stringify(options),
-        correctOption
-      ],
-      function(err) {
-        if (err) {
-          // UNIQUE constraint means duplicate - not a real error
-          if (err.message.includes('UNIQUE')) {
-            resolve({ inserted: false, duplicate: true });
-          } else {
-            reject(err);
-          }
-        } else {
-          resolve({ inserted: true, duplicate: false });
-        }
-      }
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      sourceMode.charAt(0).toUpperCase() + sourceMode.slice(1), // subject based on mode
+      question,
+      explanation,
+      difficulty,
+      JSON.stringify(['medical', 'viva', sourceMode]),
+      'mcq-preloaded',
+      'mcq',
+      JSON.stringify(options),
+      correctOption
     );
-  });
+    return { inserted: true, duplicate: false };
+  } catch (err) {
+    if (err.message.includes('UNIQUE')) {
+      return { inserted: false, duplicate: true };
+    }
+    throw err;
+  }
 }
 
 // Main seeding function
@@ -192,7 +183,7 @@ async function seedLibrary() {
       for (let i = 0; i < count; i++) {
         try {
           const mcq = await generateMCQQuestion(difficulty, mode.label);
-          const result = await insertQuestion(
+          const result = insertQuestion(
             mcq.question,
             mcq.options,
             mcq.correctOption,
@@ -238,24 +229,19 @@ async function seedLibrary() {
   console.log(`📚 Total in Library: ${totalInserted + totalDuplicates}`);
 
   // Verify by difficulty
-  return new Promise((resolve) => {
-    db.all(
-      `SELECT difficulty, COUNT(*) as count FROM library_questions WHERE questionType='mcq' GROUP BY difficulty ORDER BY difficulty`,
-      (err, rows) => {
-        if (err) {
-          console.error('❌ Verification failed:', err);
-        } else {
-          console.log('\n📈 Distribution by Difficulty:');
-          rows.forEach(row => {
-            console.log(`  ${row.difficulty.padEnd(8)}: ${row.count} questions`);
-          });
-        }
+  try {
+    const rows = db.prepare(
+      `SELECT difficulty, COUNT(*) as count FROM library_questions WHERE questionType='mcq' GROUP BY difficulty ORDER BY difficulty`
+    ).all();
+    console.log('\n📈 Distribution by Difficulty:');
+    rows.forEach(row => {
+      console.log(`  ${row.difficulty.padEnd(8)}: ${row.count} questions`);
+    });
+  } catch (err) {
+    console.error('❌ Verification failed:', err);
+  }
 
-        db.close();
-        resolve();
-      }
-    );
-  });
+  db.close();
 }
 
 // Run seeding

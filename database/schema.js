@@ -7,7 +7,7 @@
 /**
  * Initialize progress database tables
  */
-async function createProgressTables(db) {
+function createProgressTables(db) {
   const tables = [
     // Core sessions table
     `CREATE TABLE IF NOT EXISTS sessions (
@@ -137,7 +137,7 @@ async function createProgressTables(db) {
   ];
 
   for (const sql of tables) {
-    await runAsync(db, sql);
+    runSync(db, sql);
   }
 
   // Add ALTER TABLE columns (handle if they already exist)
@@ -162,14 +162,14 @@ async function createProgressTables(db) {
   ];
 
   for (const sql of alterStatements) {
-    await runAsync(db, sql, true); // true = suppress errors for duplicate columns
+    runSync(db, sql, true); // true = suppress errors for duplicate columns
   }
 }
 
 /**
  * Initialize library database tables
  */
-async function createLibraryTables(db) {
+function createLibraryTables(db) {
   const tables = [
     // Library questions storage
     `CREATE TABLE IF NOT EXISTS library_questions (
@@ -201,11 +201,11 @@ async function createLibraryTables(db) {
   ];
 
   for (const sql of tables) {
-    await runAsync(db, sql);
+    runSync(db, sql);
   }
 
   // Initialize metadata if empty
-  await runAsync(db, `
+  runSync(db, `
     INSERT OR IGNORE INTO library_metadata (id, total_questions, last_updated)
     VALUES (1, 0, CURRENT_TIMESTAMP)
   `);
@@ -218,24 +218,21 @@ async function createLibraryTables(db) {
   ];
 
   for (const sql of alterStatements) {
-    await runAsync(db, sql, true); // true = suppress errors
+    runSync(db, sql, true); // true = suppress errors
   }
 }
 
 /**
- * Helper: Run async wrapper for db.run with error handling
+ * Helper: Synchronous db.exec wrapper with error handling (better-sqlite3).
  */
-function runAsync(db, sql, suppressErrors = false) {
-  return new Promise((resolve) => {
-    db.run(sql, (err) => {
-      if (err) {
-        if (!suppressErrors && !err.message.includes('duplicate column') && !err.message.includes('already exists')) {
-          console.error('❌ Schema error:', err.message);
-        }
-      }
-      resolve();
-    });
-  });
+function runSync(db, sql, suppressErrors = false) {
+  try {
+    db.exec(sql);
+  } catch (err) {
+    if (!suppressErrors && !err.message.includes('duplicate column') && !err.message.includes('already exists')) {
+      console.error('❌ Schema error:', err.message);
+    }
+  }
 }
 
 module.exports = {

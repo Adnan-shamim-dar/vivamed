@@ -7,15 +7,13 @@
  */
 
 require('dotenv').config();
-const sqlite3 = require('sqlite3').verbose();
+const Database = require('better-sqlite3');
 
-const db = new sqlite3.Database('./data/library.db', (err) => {
-  if (err) {
-    console.error('❌ Database error:', err);
-    process.exit(1);
-  }
-  console.log('✅ Connected to library database\n');
-});
+const fs = require('fs');
+try { fs.mkdirSync('./data', { recursive: true }); } catch (e) { /* already exists */ }
+const db = new Database('./data/library.db');
+db.pragma('journal_mode = WAL');
+console.log('✅ Connected to library database\n');
 
 // Pre-curated medical MCQ questions (100 per mode)
 const mcqQuestions = {
@@ -119,8 +117,14 @@ let totalInserted = 0;
 let totalDuplicates = 0;
 let totalFailed = 0;
 
-async function insertAllQuestions() {
+function insertAllQuestions() {
   console.log('📊 Inserting pre-curated MCQ questions...\n');
+
+  const insertStmt = db.prepare(
+    `INSERT OR IGNORE INTO library_questions
+     (subject, question, perfect_answer, difficulty, tags, source_type, questionType, mcqOptions, correctOption)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
 
   for (const [mode, questions] of Object.entries(mcqQuestions)) {
     console.log(`${mode.toUpperCase()}: ${questions.length} questions`);
@@ -130,70 +134,64 @@ async function insertAllQuestions() {
     let modeFailed = 0;
 
     for (const q of questions) {
-      await new Promise((resolve) => {
-        db.run(
-          `INSERT OR IGNORE INTO library_questions
-           (subject, question, perfect_answer, difficulty, tags, source_type, questionType, mcqOptions, correctOption)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            mode.charAt(0).toUpperCase() + mode.slice(1),
-            q.question,
-            q.explanation,
-            q.difficulty,
-            JSON.stringify(['medical', 'mcq', mode]),
-            'mcq-preloaded',
-            'mcq',
-            JSON.stringify(q.options),
-            q.correctOption
-          ],
-          function(err) {
-            if (err) {
-              if (err.message.includes('UNIQUE')) {
-                modeDuplicates++;
-                totalDuplicates++;
-              } else {
-                modeFailed++;
-                totalFailed++;
-              }
-            } else {
-              modeInserted++;
-              totalInserted++;
-            }
-            resolve();
-          }
+      try {
+        const result = insertStmt.run(
+          mode.charAt(0).toUpperCase() + mode.slice(1),
+          q.question,
+          q.explanation,
+          q.difficulty,
+          JSON.stringify(['medical', 'mcq', mode]),
+          'mcq-preloaded',
+          'mcq',
+          JSON.stringify(q.options),
+          q.correctOption
         );
-      });
+        if (result.changes > 0) {
+          modeInserted++;
+          totalInserted++;
+        } else {
+          modeDuplicates++;
+          totalDuplicates++;
+        }
+      } catch (err) {
+        if (err.message.includes('UNIQUE')) {
+          modeDuplicates++;
+          totalDuplicates++;
+        } else {
+          modeFailed++;
+          totalFailed++;
+        }
+      }
     }
 
     console.log(`  ✅ ${modeInserted} inserted, ⚠️  ${modeDuplicates} duplicates, ❌ ${modeFailed} failed\n`);
   }
 
   // Verify
-  db.all(
-    `SELECT difficulty, COUNT(*) as count FROM library_questions WHERE questionType='mcq' GROUP BY difficulty`,
-    (err, rows) => {
-      console.log('═'.repeat(50));
-      console.log(`\n✅ COMPLETE\n`);
-      console.log(`✅ Total Inserted: ${totalInserted}`);
-      console.log(`⚠️  Duplicates: ${totalDuplicates}`);
-      console.log(`❌ Failed: ${totalFailed}`);
-      console.log(`\n📈 Distribution by Difficulty:`);
+  const rows = db.prepare(
+    `SELECT difficulty, COUNT(*) as count FROM library_questions WHERE questionType='mcq' GROUP BY difficulty`
+  ).all();
 
-      let easyCount = 0, mediumCount = 0, hardCount = 0;
-      (rows || []).forEach(row => {
-        const count = row.count;
-        if (row.difficulty === 'easy') easyCount = count;
-        if (row.difficulty === 'medium') mediumCount = count;
-        if (row.difficulty === 'hard') hardCount = count;
-        console.log(`  ${row.difficulty.padEnd(8)}: ${count} questions`);
-      });
+  console.log('═'.repeat(50));
+  console.log(`\n✅ COMPLETE\n`);
+  console.log(`✅ Total Inserted: ${totalInserted}`);
+  console.log(`⚠️  Duplicates: ${totalDuplicates}`);
+  console.log(`❌ Failed: ${totalFailed}`);
+  console.log(`\n📈 Distribution by Difficulty:`);
 
-      console.log(`\n📚 Total MCQ Questions: ${easyCount + mediumCount + hardCount}`);
-      console.log(`\n🎯 Ready for fallback and library!`);
+  let easyCount = 0, mediumCount = 0, hardCount = 0;
+  (rows || []).forEach(row => {
+    const count = row.count;
+    if (row.difficulty === 'easy') easyCount = count;
+    if (row.difficulty === 'medium') mediumCount = count;
+    if (row.difficulty === 'hard') hardCount = count;
+    console.log(`  ${row.difficulty.padEnd(8)}: ${count} questions`);
+  });
 
-      db.close();
-    }
-  );
+  console.log(`\n📚 Total MCQ Questions: ${easyCount + mediumCount + hardCount}`);
+  console.log(`\n🎯 Ready for fallback and library!`);
+
+  db.close();
 }
 
 insertAllQuestions();
