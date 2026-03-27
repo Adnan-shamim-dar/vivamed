@@ -1,43 +1,73 @@
 const fs = require('fs');
 const initSqlJs = require('sql.js');
 
-let db = null;
 let sqlJs = null;
+const databases = {}; // Store multiple database instances
 
-async function initDb() {
-  sqlJs = await initSqlJs();
+async function initDb(dbName = 'progress', filePath = null) {
+  if (!sqlJs) {
+    sqlJs = await initSqlJs();
+  }
+
+  if (filePath === null) {
+    filePath = `./data/${dbName}.db`;
+  }
 
   // Try to load existing database
   try {
-    if (fs.existsSync('./data/progress.db')) {
-      const data = fs.readFileSync('./data/progress.db');
+    let db;
+    if (fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath);
       db = new sqlJs.Database(data);
     } else {
       db = new sqlJs.Database();
     }
+    databases[dbName] = { instance: db, filePath };
+    return db;
   } catch (err) {
-    db = new sqlJs.Database();
+    const db = new sqlJs.Database();
+    databases[dbName] = { instance: db, filePath };
+    return db;
   }
 }
 
-function saveDb() {
+function saveDb(dbName = 'progress') {
   try {
-    if (!fs.existsSync('./data')) {
-      fs.mkdirSync('./data', { recursive: true });
+    const dbInfo = databases[dbName];
+    if (!dbInfo) {
+      console.error(`Database ${dbName} not initialized`);
+      return;
     }
-    const data = db.export();
+
+    const dir = require('path').dirname(dbInfo.filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    const data = dbInfo.instance.export();
     const buffer = Buffer.from(data);
-    fs.writeFileSync('./data/progress.db', buffer);
+    fs.writeFileSync(dbInfo.filePath, buffer);
   } catch (err) {
     console.error('Error saving database:', err);
   }
 }
 
 class DbWrapper {
+  constructor(dbName = 'progress') {
+    this.dbName = dbName;
+  }
+
+  get db() {
+    return databases[this.dbName]?.instance;
+  }
+
   run(sql, params = [], callback) {
     try {
-      db.run(sql, params);
-      saveDb();
+      if (!this.db) {
+        throw new Error(`Database ${this.dbName} not initialized`);
+      }
+      this.db.run(sql, params);
+      saveDb(this.dbName);
       if (callback) callback(null);
     } catch (err) {
       if (callback) callback(err);
@@ -46,7 +76,10 @@ class DbWrapper {
 
   get(sql, params = [], callback) {
     try {
-      const stmt = db.prepare(sql);
+      if (!this.db) {
+        throw new Error(`Database ${this.dbName} not initialized`);
+      }
+      const stmt = this.db.prepare(sql);
       stmt.bind(params);
       const result = stmt.step() ? stmt.getAsObject() : null;
       stmt.free();
@@ -59,7 +92,10 @@ class DbWrapper {
 
   all(sql, params = [], callback) {
     try {
-      const stmt = db.prepare(sql);
+      if (!this.db) {
+        throw new Error(`Database ${this.dbName} not initialized`);
+      }
+      const stmt = this.db.prepare(sql);
       stmt.bind(params);
       const results = [];
       while (stmt.step()) {

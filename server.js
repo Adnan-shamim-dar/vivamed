@@ -154,13 +154,27 @@ async function delay(ms) {
 }
 
 let db = null;
+let libraryDb = null;
 
-// Initialize database
+// Initialize both databases
 async function setupDatabase() {
   try {
-    await initDb();
-    db = new DbWrapper();
-    console.log('✅ Database connected');
+    // Initialize main database with sql.js
+    await initDb('progress');
+    db = new DbWrapper('progress');
+    console.log('✅ Main database connected');
+
+    // Create all tables for main database
+    createMainDatabaseTables();
+
+    // Initialize library database with separate sql.js instance
+    await initDb('library');
+    libraryDb = new DbWrapper('library');
+    console.log('✅ Library database connected');
+
+    // Create all tables for library database
+    createLibraryDatabaseTables();
+
     return true;
   } catch (err) {
     console.error('❌ Database error:', err);
@@ -168,8 +182,8 @@ async function setupDatabase() {
   }
 }
 
-// Create tables if they don't exist
-db.serialize(() => {
+// Create main database tables
+function createMainDatabaseTables() {
   db.run(`
     CREATE TABLE IF NOT EXISTS sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -194,7 +208,6 @@ db.serialize(() => {
     )
   `);
 
-  // New table for uploaded PDF files
   db.run(`
     CREATE TABLE IF NOT EXISTS uploaded_files (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -209,7 +222,6 @@ db.serialize(() => {
     )
   `);
 
-  // New table for PDF chunks (intelligent content segments)
   db.run(`
     CREATE TABLE IF NOT EXISTS pdf_chunks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -223,7 +235,6 @@ db.serialize(() => {
     )
   `);
 
-  // New table for cached pre-generated questions (for background generation)
   db.run(`
     CREATE TABLE IF NOT EXISTS cached_questions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -242,7 +253,6 @@ db.serialize(() => {
     )
   `);
 
-  // NEW: Table for MCQ performance tracking (Duolingo-style learning engine)
   db.run(`
     CREATE TABLE IF NOT EXISTS mcq_performance (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -261,7 +271,6 @@ db.serialize(() => {
     )
   `);
 
-  // Add columns to sessions table (if they don't exist)
   db.run(`ALTER TABLE sessions ADD COLUMN fileId TEXT`, (err) => {
     if (err && !err.message.includes('duplicate column')) {
       console.error('Error adding fileId to sessions:', err.message);
@@ -274,7 +283,6 @@ db.serialize(() => {
     }
   });
 
-  // NEW: Statistics columns for MCQ learning engine
   db.run(`ALTER TABLE sessions ADD COLUMN correctAnswers INTEGER DEFAULT 0`, (err) => {
     if (err && !err.message.includes('duplicate column')) {
       console.error('Error adding correctAnswers to sessions:', err.message);
@@ -293,7 +301,6 @@ db.serialize(() => {
     }
   });
 
-  // Add columns to attempts table (if they don't exist)
   db.run(`ALTER TABLE attempts ADD COLUMN chunkIndex INTEGER`, (err) => {
     if (err && !err.message.includes('duplicate column')) {
       console.error('Error adding chunkIndex to attempts:', err.message);
@@ -312,15 +319,12 @@ db.serialize(() => {
     }
   });
 
-  // Add subject column to uploaded_files (for library organization)
   db.run(`ALTER TABLE uploaded_files ADD COLUMN subject TEXT DEFAULT 'General'`, (err) => {
     if (err && !err.message.includes('duplicate column')) {
       console.error('Error adding subject to uploaded_files:', err.message);
     }
   });
 
-  // ========== NEW: MCQ MODE COLUMNS ==========
-  // Add MCQ columns to attempts table
   db.run(`ALTER TABLE attempts ADD COLUMN selectedOption TEXT`, (err) => {
     if (err && !err.message.includes('duplicate column')) {
       console.error('Error adding selectedOption to attempts:', err.message);
@@ -345,7 +349,6 @@ db.serialize(() => {
     }
   });
 
-  // Add mode-specific upload tracking to uploaded_files table
   db.run(`ALTER TABLE uploaded_files ADD COLUMN uploadMode TEXT`, (err) => {
     if (err && !err.message.includes('duplicate column')) {
       console.error('Error adding uploadMode to uploaded_files:', err.message);
@@ -358,7 +361,6 @@ db.serialize(() => {
     }
   });
 
-  // NEW: User Statistics - Aggregated cross-session tracking
   db.run(`
     CREATE TABLE IF NOT EXISTS user_stats (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -378,7 +380,6 @@ db.serialize(() => {
     }
   });
 
-  // NEW: Add username column to sessions and attempts
   db.run(`ALTER TABLE sessions ADD COLUMN username TEXT`, (err) => {
     if (err && !err.message.includes('duplicate column')) {
       // Silently ignore if column already exists
@@ -398,18 +399,10 @@ db.serialize(() => {
   });
 
   console.log('📊 Database tables ready (including PDF support and MCQ support)');
-});
+}
 
-// ========================================
-// LIBRARY DATABASE SETUP (Local Question Library)
-// ========================================
-const libraryDb = new sqlite3.Database('./data/library.db', (err) => {
-  if (err) console.error('❌ Library database error:', err);
-  else console.log('✅ Library database connected');
-});
-
-// Create library tables if they don't exist
-libraryDb.serialize(() => {
+// Create library database tables
+function createLibraryDatabaseTables() {
   libraryDb.run(`
     CREATE TABLE IF NOT EXISTS library_questions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -426,7 +419,6 @@ libraryDb.serialize(() => {
     )
   `);
 
-  // Add MCQ-specific columns to library_questions
   libraryDb.run(`ALTER TABLE library_questions ADD COLUMN questionType TEXT DEFAULT 'long-form'`, (err) => {
     if (err && !err.message.includes('duplicate column')) {
       console.error('Error adding questionType to library_questions:', err.message);
@@ -456,14 +448,13 @@ libraryDb.serialize(() => {
     )
   `);
 
-  // Initialize metadata if empty
   libraryDb.run(`
     INSERT OR IGNORE INTO library_metadata (id, total_questions, last_updated)
     VALUES (1, 0, CURRENT_TIMESTAMP)
   `);
 
   console.log('📚 Library database tables ready');
-});
+}
 
 
 // ========================================
