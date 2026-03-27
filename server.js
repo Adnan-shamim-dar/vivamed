@@ -1018,6 +1018,18 @@ const FALLBACK_MCQ_POOLS = {
       options: { A: "Transport oxygen", B: "Fight infections", C: "Clot blood", D: "Produce antibodies" },
       correctOption: "A",
       explanation: "Red blood cells contain hemoglobin which binds and transports oxygen throughout the body."
+    },
+    {
+      question: "Which organ is responsible for filtering blood and producing urine?",
+      options: { A: "Kidney", B: "Liver", C: "Pancreas", D: "Spleen" },
+      correctOption: "A",
+      explanation: "The kidneys filter blood to remove waste products and excess water, which form urine."
+    },
+    {
+      question: "What is the role of insulin in the body?",
+      options: { A: "Lower blood glucose levels", B: "Increase heart rate", C: "Boost immune response", D: "Speed up digestion" },
+      correctOption: "A",
+      explanation: "Insulin is a hormone that promotes glucose uptake from blood into cells, lowering blood glucose levels."
     }
   ],
   medium: [
@@ -1032,6 +1044,42 @@ const FALLBACK_MCQ_POOLS = {
       options: { A: "Block angiotensin II formation", B: "Block beta-adrenergic receptors", C: "Block calcium channels", D: "Increase sodium excretion" },
       correctOption: "A",
       explanation: "ACE inhibitors prevent the conversion of angiotensin I to angiotensin II, reducing vasoconstriction and aldosterone secretion."
+    },
+    {
+      question: "Which hormone regulates calcium levels in the blood?",
+      options: { A: "Parathyroid hormone", B: "Thyroid hormone", C: "Glucagon", D: "Epinephrine" },
+      correctOption: "A",
+      explanation: "Parathyroid hormone increases serum calcium by promoting calcium reabsorption in kidneys and release from bones."
+    },
+    {
+      question: "What is the primary site of drug metabolism in the body?",
+      options: { A: "Liver", B: "Kidneys", C: "Lungs", D: "Intestines" },
+      correctOption: "A",
+      explanation: "The liver is the primary organ for drug metabolism through Phase I, II, and III reactions."
+    },
+    {
+      question: "Which fraction of ejection represents the percentage of blood leaving the left ventricle?",
+      options: { A: "Ejection fraction", B: "Cardiac index", C: "Stroke volume", D: "Cardiac output" },
+      correctOption: "A",
+      explanation: "Ejection fraction is the percentage of blood that leaves the left ventricle with each contraction, normally 50-70%."
+    },
+    {
+      question: "What is the normal tidal volume in a healthy adult at rest?",
+      options: { A: "500 mL", B: "250 mL", C: "1000 mL", D: "2000 mL" },
+      correctOption: "A",
+      explanation: "Tidal volume is the volume of air breathed in or out per minute at rest, approximately 500 mL in adults."
+    },
+    {
+      question: "Which cells are responsible for humoral immunity?",
+      options: { A: "B lymphocytes", B: "T lymphocytes", C: "Macrophages", D: "Neutrophils" },
+      correctOption: "A",
+      explanation: "B lymphocytes produce antibodies (immunoglobulins) responsible for humoral immune responses."
+    },
+    {
+      question: "What is the primary function of the glomerulus in the kidney?",
+      options: { A: "Ultrafiltration of blood", B: "Reabsorption of glucose", C: "Secretion of waste", D: "Production of hormones" },
+      correctOption: "A",
+      explanation: "The glomerulus filters blood under pressure to produce filtrate, which becomes urine after selective reabsorption."
     }
   ],
   hard: [
@@ -1046,6 +1094,42 @@ const FALLBACK_MCQ_POOLS = {
       options: { A: "Excessive nitric oxide production", B: "Catecholamine depletion", C: "Direct myocardial suppression", D: "Hypovolemia" },
       correctOption: "A",
       explanation: "Sepsis causes excessive NO production by inducible nitric oxide synthase, leading to vasodilation and contributing to distributive shock."
+    },
+    {
+      question: "Which cytokine is primarily responsible for fever induction during infection?",
+      options: { A: "Interleukin-1", B: "Interleukin-4", C: "Interleukin-10", D: "TNF-beta" },
+      correctOption: "A",
+      explanation: "IL-1 acts on the hypothalamus to increase the set point for body temperature, initiating fever."
+    },
+    {
+      question: "What is the mechanism of action of direct thrombin inhibitors?",
+      options: { A: "Block thrombin directly", B: "Inhibit Factor X", C: "Enhance protein C", D: "Inactivate fibrinogen" },
+      correctOption: "A",
+      explanation: "Direct thrombin inhibitors like dabigatran bind directly to and inhibit thrombin, preventing clot formation."
+    },
+    {
+      question: "In ARDS, what is the pathophysiologic basis for refractory hypoxemia?",
+      options: { A: "Intrapulmonary shunt from collapsed alveoli", B: "Hypoventilation", C: "Decreased hemoglobin", D: "Reduced cardiac output" },
+      correctOption: "A",
+      explanation: "ARDS causes alveolar collapse (atelectasis) creating intrapulmonary shunt that is resistant to supplemental oxygen."
+    },
+    {
+      question: "Which mechanisms explain the prolonged half-life of digoxin in renal failure?",
+      options: { A: "Decreased renal clearance and increased volume of distribution", B: "Increased metabolism", C: "Enhanced protein binding", D: "Increased gastrointestinal absorption" },
+      correctOption: "A",
+      explanation: "Digoxin is renally eliminated and distributes to muscle; renal failure decreases clearance and increases tissue accumulation."
+    },
+    {
+      question: "In DIC, which finding represents consumption of clotting factors?",
+      options: { A: "Decreased platelet count and decreased fibrinogen", B: "Increased PT and aPTT with normal platelets", C: "Low fibrinogen with normal PT", D: "Elevated thrombin time only" },
+      correctOption: "A",
+      explanation: "DIC is characterized by simultaneous thrombin generation and fibrinolysis, resulting in thrombocytopenia and hypofibrinogenemia."
+    },
+    {
+      question: "What is the primary mechanism of acute tubular necrosis (ATN) in sepsis?",
+      options: { A: "Renal hypoperfusion from systemic vasodilation", B: "Direct tubular toxin", C: "Glomerulonephritis", D: "Obstructive nephropathy" },
+      correctOption: "A",
+      explanation: "Sepsis-induced vasodilation reduces renal perfusion pressure, causing ischemic injury to proximal tubules."
     }
   ]
 };
