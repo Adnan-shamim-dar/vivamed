@@ -1135,7 +1135,7 @@ const FALLBACK_MCQ_POOLS = {
 };
 
 async function generateGenericAIMCQQuestion(difficulty = 'medium') {
-  const MAX_RETRIES = 2;
+  const MAX_RETRIES = 3;  // INCREASED from 2 to 3
   let lastError;
 
   // Build guidance and prompt ONCE before retry loop (avoid rebuilding on each attempt)
@@ -1219,7 +1219,7 @@ Return ONLY valid JSON (no markdown, no backticks!) in this exact format:
   }
 
   // All retries failed - return fallback MCQ
-  console.warn('⚠️ All API retries failed, using fallback MCQ');
+  console.warn(`⚠️ All ${MAX_RETRIES} API retries failed for MCQ generation, using fallback MCQ. Last error: ${lastError?.message}`);
   return getFallbackMCQ(difficulty);
 }
 
@@ -2644,7 +2644,7 @@ app.post("/mcq-question", async (req, res) => {
     const { sessionId, fileId, difficulty } = req.body;
     const diff = difficulty || 'medium';
 
-    console.log(`📋 MCQ Question Endpoint - sessionId=${sessionId}, fileId=${fileId}, difficulty=${diff}`);
+    console.log(`\n📋 MCQ Question Endpoint - sessionId=${sessionId}, fileId=${fileId}, difficulty=${diff}`);
 
     // NEW: Check learning engine for revision question
     const mcqLogic = await selectNextMCQLogic(sessionId, fileId);
@@ -2674,6 +2674,8 @@ app.post("/mcq-question", async (req, res) => {
       return res.json({ ...fallback, isRevision: false, reviewCount: 0 });
     }
 
+    console.log('✅ API key detected, attempting to generate MCQ from AI...');  // NEW LOG
+
     // ADAPTIVE LEARNING: Select topic for this question (70% weak, 30% random)
     const forcedTopic = await learningService.selectTopicForQuestion(db, sessionId);
 
@@ -2691,6 +2693,7 @@ app.post("/mcq-question", async (req, res) => {
         mcqQuestion = await generateGenericAIMCQQuestion(diff);
       }
 
+      console.log('✅ MCQ generated successfully from API, returning...');  // NEW LOG
       return res.json({ ...mcqQuestion, isRevision: false, reviewCount: 0 });
     } catch (generationError) {
       // Generation failed - gracefully fall back to fallback pool
