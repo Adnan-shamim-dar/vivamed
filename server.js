@@ -1,7 +1,7 @@
 require('dotenv').config()
 console.log('🔥 SERVER.JS LOADED - VERSION 3')
 const express = require("express")
-const sqlite3 = require('sqlite3').verbose()
+const Database = require('better-sqlite3')
 const multer = require('multer')
 const pdfParse = require('pdf-parse')
 const fs = require('fs').promises
@@ -153,307 +153,213 @@ async function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-const db = new sqlite3.Database('./data/progress.db', (err) => {
-  if (err) console.error('❌ Database error:', err);
-  else console.log('✅ Database connected');
-});
+// Ensure data directory exists synchronously before opening databases
+const fsSync2 = require('fs');
+try { fsSync2.mkdirSync('./data', { recursive: true }); } catch (e) { /* already exists */ }
+
+const db = new Database('./data/progress.db');
+db.pragma('journal_mode = WAL');
+console.log('✅ Database connected');
+
+// Helper: run a DDL/DML statement, suppressing duplicate-column errors
+function dbExec(stmt, suppress = false) {
+  try { db.exec(stmt); } catch (err) {
+    if (!suppress && !err.message.includes('duplicate column') && !err.message.includes('already exists')) {
+      console.error('❌ DB exec error:', err.message);
+    }
+  }
+}
 
 // Create tables if they don't exist
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sessionId TEXT UNIQUE,
-      mode TEXT,
-      startTime TEXT,
-      createdAt TEXT DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
+dbExec(`
+  CREATE TABLE IF NOT EXISTS sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sessionId TEXT UNIQUE,
+    mode TEXT,
+    startTime TEXT,
+    createdAt TEXT DEFAULT CURRENT_TIMESTAMP
+  )
+`);
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS attempts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sessionId TEXT,
-      questionIndex INTEGER,
-      question TEXT,
-      answer TEXT,
-      score INTEGER,
-      source TEXT,
-      timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(sessionId) REFERENCES sessions(sessionId)
-    )
-  `);
+dbExec(`
+  CREATE TABLE IF NOT EXISTS attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sessionId TEXT,
+    questionIndex INTEGER,
+    question TEXT,
+    answer TEXT,
+    score INTEGER,
+    source TEXT,
+    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(sessionId) REFERENCES sessions(sessionId)
+  )
+`);
 
-  // New table for uploaded PDF files
-  db.run(`
-    CREATE TABLE IF NOT EXISTS uploaded_files (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      fileId TEXT UNIQUE,
-      originalFilename TEXT,
-      filePath TEXT,
-      fileSize INTEGER,
-      uploadTime TEXT DEFAULT CURRENT_TIMESTAMP,
-      extractedText TEXT,
-      totalChunks INTEGER,
-      status TEXT DEFAULT 'processing'
-    )
-  `);
+// New table for uploaded PDF files
+dbExec(`
+  CREATE TABLE IF NOT EXISTS uploaded_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fileId TEXT UNIQUE,
+    originalFilename TEXT,
+    filePath TEXT,
+    fileSize INTEGER,
+    uploadTime TEXT DEFAULT CURRENT_TIMESTAMP,
+    extractedText TEXT,
+    totalChunks INTEGER,
+    status TEXT DEFAULT 'processing'
+  )
+`);
 
-  // New table for PDF chunks (intelligent content segments)
-  db.run(`
-    CREATE TABLE IF NOT EXISTS pdf_chunks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      fileId TEXT,
-      chunkIndex INTEGER,
-      chunkText TEXT,
-      keyConcepts TEXT,
-      chunkType TEXT,
-      wordCount INTEGER,
-      FOREIGN KEY(fileId) REFERENCES uploaded_files(fileId)
-    )
-  `);
+// New table for PDF chunks (intelligent content segments)
+dbExec(`
+  CREATE TABLE IF NOT EXISTS pdf_chunks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fileId TEXT,
+    chunkIndex INTEGER,
+    chunkText TEXT,
+    keyConcepts TEXT,
+    chunkType TEXT,
+    wordCount INTEGER,
+    FOREIGN KEY(fileId) REFERENCES uploaded_files(fileId)
+  )
+`);
 
-  // New table for cached pre-generated questions (for background generation)
-  db.run(`
-    CREATE TABLE IF NOT EXISTS cached_questions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      fileId TEXT,
-      question TEXT,
-      difficulty TEXT,
-      difficultyEmoji TEXT,
-      chunkIndex INTEGER,
-      totalChunks INTEGER,
-      chunkType TEXT,
-      pdfFilename TEXT,
-      pdfBased INTEGER DEFAULT 1,
-      source TEXT DEFAULT 'pdf-ai',
-      generatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(fileId) REFERENCES uploaded_files(fileId)
-    )
-  `);
+// New table for cached pre-generated questions (for background generation)
+dbExec(`
+  CREATE TABLE IF NOT EXISTS cached_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fileId TEXT,
+    question TEXT,
+    difficulty TEXT,
+    difficultyEmoji TEXT,
+    chunkIndex INTEGER,
+    totalChunks INTEGER,
+    chunkType TEXT,
+    pdfFilename TEXT,
+    pdfBased INTEGER DEFAULT 1,
+    source TEXT DEFAULT 'pdf-ai',
+    generatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(fileId) REFERENCES uploaded_files(fileId)
+  )
+`);
 
-  // NEW: Table for MCQ performance tracking (Duolingo-style learning engine)
-  db.run(`
-    CREATE TABLE IF NOT EXISTS mcq_performance (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sessionId TEXT NOT NULL,
-      question TEXT NOT NULL,
-      optionsJSON TEXT NOT NULL,
-      correctOption TEXT NOT NULL,
-      userAnswer TEXT NOT NULL,
-      isCorrect BOOLEAN NOT NULL,
-      timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-      reviewCount INTEGER DEFAULT 0,
-      lastReviewedAt TEXT,
-      difficulty TEXT DEFAULT 'medium',
-      markedForRemoval BOOLEAN DEFAULT 0,
-      FOREIGN KEY(sessionId) REFERENCES sessions(sessionId)
-    )
-  `);
+// NEW: Table for MCQ performance tracking (Duolingo-style learning engine)
+dbExec(`
+  CREATE TABLE IF NOT EXISTS mcq_performance (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sessionId TEXT NOT NULL,
+    question TEXT NOT NULL,
+    optionsJSON TEXT NOT NULL,
+    correctOption TEXT NOT NULL,
+    userAnswer TEXT NOT NULL,
+    isCorrect BOOLEAN NOT NULL,
+    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+    reviewCount INTEGER DEFAULT 0,
+    lastReviewedAt TEXT,
+    difficulty TEXT DEFAULT 'medium',
+    markedForRemoval BOOLEAN DEFAULT 0,
+    FOREIGN KEY(sessionId) REFERENCES sessions(sessionId)
+  )
+`);
 
-  // Add columns to sessions table (if they don't exist)
-  db.run(`ALTER TABLE sessions ADD COLUMN fileId TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding fileId to sessions:', err.message);
-    }
-  });
+// Add columns to sessions table (if they don't exist)
+dbExec(`ALTER TABLE sessions ADD COLUMN fileId TEXT`, true);
+dbExec(`ALTER TABLE sessions ADD COLUMN lastChunkIndex INTEGER DEFAULT 0`, true);
+dbExec(`ALTER TABLE sessions ADD COLUMN correctAnswers INTEGER DEFAULT 0`, true);
+dbExec(`ALTER TABLE sessions ADD COLUMN wrongAnswers INTEGER DEFAULT 0`, true);
+dbExec(`ALTER TABLE sessions ADD COLUMN totalAttempts INTEGER DEFAULT 0`, true);
+dbExec(`ALTER TABLE sessions ADD COLUMN username TEXT`, true);
 
-  db.run(`ALTER TABLE sessions ADD COLUMN lastChunkIndex INTEGER DEFAULT 0`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding lastChunkIndex to sessions:', err.message);
-    }
-  });
+// Add columns to attempts table (if they don't exist)
+dbExec(`ALTER TABLE attempts ADD COLUMN chunkIndex INTEGER`, true);
+dbExec(`ALTER TABLE attempts ADD COLUMN pdfBased INTEGER DEFAULT 0`, true);
+dbExec(`ALTER TABLE attempts ADD COLUMN difficulty TEXT DEFAULT 'medium'`, true);
+dbExec(`ALTER TABLE attempts ADD COLUMN selectedOption TEXT`, true);
+dbExec(`ALTER TABLE attempts ADD COLUMN correctOption TEXT`, true);
+dbExec(`ALTER TABLE attempts ADD COLUMN isMCQ BOOLEAN DEFAULT 0`, true);
+dbExec(`ALTER TABLE attempts ADD COLUMN questionType TEXT DEFAULT 'long-form'`, true);
+dbExec(`ALTER TABLE attempts ADD COLUMN username TEXT`, true);
+dbExec(`ALTER TABLE attempts ADD COLUMN topic TEXT`, true);
 
-  // NEW: Statistics columns for MCQ learning engine
-  db.run(`ALTER TABLE sessions ADD COLUMN correctAnswers INTEGER DEFAULT 0`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding correctAnswers to sessions:', err.message);
-    }
-  });
+// Add columns to uploaded_files table (if they don't exist)
+dbExec(`ALTER TABLE uploaded_files ADD COLUMN subject TEXT DEFAULT 'General'`, true);
+dbExec(`ALTER TABLE uploaded_files ADD COLUMN uploadMode TEXT`, true);
+dbExec(`ALTER TABLE uploaded_files ADD COLUMN questionType TEXT DEFAULT 'long-form'`, true);
 
-  db.run(`ALTER TABLE sessions ADD COLUMN wrongAnswers INTEGER DEFAULT 0`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding wrongAnswers to sessions:', err.message);
-    }
-  });
+// NEW: User Statistics - Aggregated cross-session tracking
+dbExec(`
+  CREATE TABLE IF NOT EXISTS user_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    total_attempted INTEGER DEFAULT 0,
+    correct INTEGER DEFAULT 0,
+    wrong INTEGER DEFAULT 0,
+    accuracy_percent REAL DEFAULT 0,
+    topics_performance TEXT DEFAULT '{}',
+    last_session_id TEXT,
+    last_updated TEXT DEFAULT CURRENT_TIMESTAMP,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  )
+`);
 
-  db.run(`ALTER TABLE sessions ADD COLUMN totalAttempts INTEGER DEFAULT 0`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding totalAttempts to sessions:', err.message);
-    }
-  });
-
-  // Add columns to attempts table (if they don't exist)
-  db.run(`ALTER TABLE attempts ADD COLUMN chunkIndex INTEGER`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding chunkIndex to attempts:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE attempts ADD COLUMN pdfBased INTEGER DEFAULT 0`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding pdfBased to attempts:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE attempts ADD COLUMN difficulty TEXT DEFAULT 'medium'`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding difficulty to attempts:', err.message);
-    }
-  });
-
-  // Add subject column to uploaded_files (for library organization)
-  db.run(`ALTER TABLE uploaded_files ADD COLUMN subject TEXT DEFAULT 'General'`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding subject to uploaded_files:', err.message);
-    }
-  });
-
-  // ========== NEW: MCQ MODE COLUMNS ==========
-  // Add MCQ columns to attempts table
-  db.run(`ALTER TABLE attempts ADD COLUMN selectedOption TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding selectedOption to attempts:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE attempts ADD COLUMN correctOption TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding correctOption to attempts:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE attempts ADD COLUMN isMCQ BOOLEAN DEFAULT 0`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding isMCQ to attempts:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE attempts ADD COLUMN questionType TEXT DEFAULT 'long-form'`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding questionType to attempts:', err.message);
-    }
-  });
-
-  // Add mode-specific upload tracking to uploaded_files table
-  db.run(`ALTER TABLE uploaded_files ADD COLUMN uploadMode TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding uploadMode to uploaded_files:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE uploaded_files ADD COLUMN questionType TEXT DEFAULT 'long-form'`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding questionType to uploaded_files:', err.message);
-    }
-  });
-
-  // NEW: User Statistics - Aggregated cross-session tracking
-  db.run(`
-    CREATE TABLE IF NOT EXISTS user_stats (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      total_attempted INTEGER DEFAULT 0,
-      correct INTEGER DEFAULT 0,
-      wrong INTEGER DEFAULT 0,
-      accuracy_percent REAL DEFAULT 0,
-      topics_performance TEXT DEFAULT '{}',
-      last_session_id TEXT,
-      last_updated TEXT DEFAULT CURRENT_TIMESTAMP,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    )
-  `, (err) => {
-    if (err && !err.message.includes('already exists')) {
-      console.error('Error creating user_stats table:', err.message);
-    }
-  });
-
-  // NEW: Add username column to sessions and attempts
-  db.run(`ALTER TABLE sessions ADD COLUMN username TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      // Silently ignore if column already exists
-    }
-  });
-
-  db.run(`ALTER TABLE attempts ADD COLUMN username TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      // Silently ignore if column already exists
-    }
-  });
-
-  db.run(`ALTER TABLE attempts ADD COLUMN topic TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      // Silently ignore if column already exists
-    }
-  });
-
-  console.log('📊 Database tables ready (including PDF support and MCQ support)');
-});
+console.log('📊 Database tables ready (including PDF support and MCQ support)');
 
 // ========================================
 // LIBRARY DATABASE SETUP (Local Question Library)
 // ========================================
-const libraryDb = new sqlite3.Database('./data/library.db', (err) => {
-  if (err) console.error('❌ Library database error:', err);
-  else console.log('✅ Library database connected');
-});
+const libraryDb = new Database('./data/library.db');
+libraryDb.pragma('journal_mode = WAL');
+console.log('✅ Library database connected');
+
+// Helper: run a DDL/DML statement on libraryDb, suppressing duplicate-column errors
+function libExec(stmt, suppress = false) {
+  try { libraryDb.exec(stmt); } catch (err) {
+    if (!suppress && !err.message.includes('duplicate column') && !err.message.includes('already exists')) {
+      console.error('❌ LibDB exec error:', err.message);
+    }
+  }
+}
 
 // Create library tables if they don't exist
-libraryDb.serialize(() => {
-  libraryDb.run(`
-    CREATE TABLE IF NOT EXISTS library_questions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      subject TEXT,
-      question TEXT UNIQUE,
-      perfect_answer TEXT,
-      difficulty TEXT,
-      tags TEXT,
-      source_type TEXT DEFAULT 'pdf-ai',
-      source_pdf TEXT,
-      created_date TEXT DEFAULT CURRENT_TIMESTAMP,
-      usage_count INTEGER DEFAULT 0,
-      rating REAL DEFAULT 0.0
-    )
-  `);
+libExec(`
+  CREATE TABLE IF NOT EXISTS library_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject TEXT,
+    question TEXT UNIQUE,
+    perfect_answer TEXT,
+    difficulty TEXT,
+    tags TEXT,
+    source_type TEXT DEFAULT 'pdf-ai',
+    source_pdf TEXT,
+    created_date TEXT DEFAULT CURRENT_TIMESTAMP,
+    usage_count INTEGER DEFAULT 0,
+    rating REAL DEFAULT 0.0
+  )
+`);
 
-  // Add MCQ-specific columns to library_questions
-  libraryDb.run(`ALTER TABLE library_questions ADD COLUMN questionType TEXT DEFAULT 'long-form'`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding questionType to library_questions:', err.message);
-    }
-  });
+// Add MCQ-specific columns to library_questions
+libExec(`ALTER TABLE library_questions ADD COLUMN questionType TEXT DEFAULT 'long-form'`, true);
+libExec(`ALTER TABLE library_questions ADD COLUMN mcqOptions TEXT`, true);
+libExec(`ALTER TABLE library_questions ADD COLUMN correctOption TEXT`, true);
 
-  libraryDb.run(`ALTER TABLE library_questions ADD COLUMN mcqOptions TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding mcqOptions to library_questions:', err.message);
-    }
-  });
+libExec(`
+  CREATE TABLE IF NOT EXISTS library_metadata (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_date TEXT DEFAULT CURRENT_TIMESTAMP,
+    total_questions INTEGER DEFAULT 0,
+    total_subjects TEXT,
+    last_updated TEXT,
+    ai_availability_status TEXT DEFAULT 'available'
+  )
+`);
 
-  libraryDb.run(`ALTER TABLE library_questions ADD COLUMN correctOption TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding correctOption to library_questions:', err.message);
-    }
-  });
+// Initialize metadata if empty
+libExec(`
+  INSERT OR IGNORE INTO library_metadata (id, total_questions, last_updated)
+  VALUES (1, 0, CURRENT_TIMESTAMP)
+`);
 
-  libraryDb.run(`
-    CREATE TABLE IF NOT EXISTS library_metadata (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      store_date TEXT DEFAULT CURRENT_TIMESTAMP,
-      total_questions INTEGER DEFAULT 0,
-      total_subjects TEXT,
-      last_updated TEXT,
-      ai_availability_status TEXT DEFAULT 'available'
-    )
-  `);
-
-  // Initialize metadata if empty
-  libraryDb.run(`
-    INSERT OR IGNORE INTO library_metadata (id, total_questions, last_updated)
-    VALUES (1, 0, CURRENT_TIMESTAMP)
-  `);
-
-  console.log('📚 Library database tables ready');
-});
+console.log('📚 Library database tables ready');
 
 
 // ========================================
@@ -690,48 +596,37 @@ function calculateSimilarity(text1, text2) {
   return similarity;
 }
 
-async function isQuestionTooSimilar(newQuestion, subject) {
-  return new Promise((resolve, reject) => {
-    // Check against existing questions in same subject
-    libraryDb.all(
-      `SELECT question FROM library_questions WHERE subject = ? LIMIT 50`,
-      [subject],
-      (err, rows) => {
-        if (err) {
-          console.error('Similarity check error:', err);
-          resolve(false); // Allow if query fails
-          return;
-        }
+function isQuestionTooSimilar(newQuestion, subject) {
+  try {
+    const rows = libraryDb.prepare(`SELECT question FROM library_questions WHERE subject = ? LIMIT 50`).all(subject);
 
-        if (!rows || rows.length === 0) {
-          resolve(false); // No existing questions, so not similar
-          return;
-        }
+    if (!rows || rows.length === 0) {
+      return false; // No existing questions, so not similar
+    }
 
-        // Check similarity against each existing question
-        const similarityThreshold = 0.6; // 60% similarity = too similar
-        for (const row of rows) {
-          const similarity = calculateSimilarity(newQuestion, row.question);
-          if (similarity > similarityThreshold) {
-            console.log(`⚠️  Question too similar (${Math.round(similarity * 100)}%): "${newQuestion.substring(0, 60)}..."`);
-            resolve(true); // Is similar
-            return;
-          }
-        }
-
-        resolve(false); // Not similar to any existing questions
+    const similarityThreshold = 0.6; // 60% similarity = too similar
+    for (const row of rows) {
+      const similarity = calculateSimilarity(newQuestion, row.question);
+      if (similarity > similarityThreshold) {
+        console.log(`⚠️  Question too similar (${Math.round(similarity * 100)}%): "${newQuestion.substring(0, 60)}..."`);
+        return true; // Is similar
       }
-    );
-  });
+    }
+
+    return false; // Not similar to any existing questions
+  } catch (err) {
+    console.error('Similarity check error:', err);
+    return false; // Allow if query fails
+  }
 }
 
 // ========================================
 // SAVE QUESTION TO LIBRARY (Memory-Efficient)
 // ========================================
-async function saveQuestionToLibrary(question, perfectAnswer, subject, difficulty, chunkText, sourceType = 'pdf-ai', sourcePdf = null, questionType = 'long-form', mcqOptions = null, correctOption = null) {
+function saveQuestionToLibrary(question, perfectAnswer, subject, difficulty, chunkText, sourceType = 'pdf-ai', sourcePdf = null, questionType = 'long-form', mcqOptions = null, correctOption = null) {
   try {
     // Check for similarity before saving
-    const isSimilar = await isQuestionTooSimilar(question, subject);
+    const isSimilar = isQuestionTooSimilar(question, subject);
     if (isSimilar) {
       console.log('📌 Skipping similar question');
       return false; // Question not saved
@@ -750,32 +645,25 @@ async function saveQuestionToLibrary(question, perfectAnswer, subject, difficult
     const mcqOptionsJson = mcqOptions ? JSON.stringify(mcqOptions) : null;
 
     // Insert into library_questions (ignore duplicates via UNIQUE constraint)
-    return new Promise((resolve, reject) => {
-      libraryDb.run(
-        `INSERT OR IGNORE INTO library_questions
-         (subject, question, perfect_answer, difficulty, tags, source_type, source_pdf, questionType, mcqOptions, correctOption)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [subject, question, perfectAnswer, difficulty, JSON.stringify(tags), sourceType, sourcePdf, questionType, mcqOptionsJson, correctOption],
-        (err) => {
-          if (err) {
-            console.error('❌ Library save error:', err.message);
-            reject(err);
-          } else {
-            console.log(`📚 ${questionType === 'mcq' ? '📋 MCQ' : '📝 Question'} saved to library [${subject}/${difficulty}]`);
+    libraryDb.prepare(
+      `INSERT OR IGNORE INTO library_questions
+       (subject, question, perfect_answer, difficulty, tags, source_type, source_pdf, questionType, mcqOptions, correctOption)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(subject, question, perfectAnswer, difficulty, JSON.stringify(tags), sourceType, sourcePdf, questionType, mcqOptionsJson, correctOption);
 
-            // Update metadata (async, non-blocking)
-            libraryDb.run(
-              `UPDATE library_metadata SET
-               total_questions = (SELECT COUNT(*) FROM library_questions),
-               last_updated = CURRENT_TIMESTAMP
-               WHERE id = 1`
-            );
+    console.log(`📚 ${questionType === 'mcq' ? '📋 MCQ' : '📝 Question'} saved to library [${subject}/${difficulty}]`);
 
-            resolve(true); // Return true = question saved
-          }
-        }
-      );
-    });
+    // Update metadata (non-blocking, best-effort)
+    try {
+      libraryDb.prepare(
+        `UPDATE library_metadata SET
+         total_questions = (SELECT COUNT(*) FROM library_questions),
+         last_updated = CURRENT_TIMESTAMP
+         WHERE id = 1`
+      ).run();
+    } catch (e) { /* non-critical */ }
+
+    return true; // Return true = question saved
   } catch (error) {
     console.error('❌ saveQuestionToLibrary failed:', error.message);
     return false; // Silent fail - don't break question generation
@@ -802,50 +690,24 @@ async function generateGenericAIQuestion() {
 }
 
 // Get next chunk using rotation algorithm
-async function getNextChunk(sessionId, fileId) {
-  return new Promise((resolve, reject) => {
-    // Get session's last used chunk index
-    db.get('SELECT lastChunkIndex FROM sessions WHERE sessionId = ?', [sessionId], (err, session) => {
-      if (err) return reject(err);
+function getNextChunk(sessionId, fileId) {
+  const session = db.prepare('SELECT lastChunkIndex FROM sessions WHERE sessionId = ?').get(sessionId);
+  const lastIndex = session?.lastChunkIndex || 0;
 
-      const lastIndex = session?.lastChunkIndex || 0;
+  const result = db.prepare('SELECT COUNT(*) as count FROM pdf_chunks WHERE fileId = ?').get(fileId);
+  const totalChunks = result.count;
+  if (totalChunks === 0) {
+    throw new Error('No chunks found for this PDF');
+  }
 
-      // Get total chunks for this PDF
-      db.get('SELECT COUNT(*) as count FROM pdf_chunks WHERE fileId = ?', [fileId], (err, result) => {
-        if (err) return reject(err);
+  const nextIndex = (lastIndex + 1) % totalChunks;
+  console.log(`🔄 Rotating from chunk ${lastIndex} to ${nextIndex} (of ${totalChunks})`);
 
-        const totalChunks = result.count;
-        if (totalChunks === 0) {
-          return reject(new Error('No chunks found for this PDF'));
-        }
+  const chunk = db.prepare('SELECT * FROM pdf_chunks WHERE fileId = ? AND chunkIndex = ?').get(fileId, nextIndex);
+  if (!chunk) throw new Error(`Chunk ${nextIndex} not found`);
 
-        // Rotate to next chunk (circular)
-        const nextIndex = (lastIndex + 1) % totalChunks;
-
-        console.log(`🔄 Rotating from chunk ${lastIndex} to ${nextIndex} (of ${totalChunks})`);
-
-        // Fetch chunk
-        db.get(
-          'SELECT * FROM pdf_chunks WHERE fileId = ? AND chunkIndex = ?',
-          [fileId, nextIndex],
-          (err, chunk) => {
-            if (err) return reject(err);
-            if (!chunk) return reject(new Error(`Chunk ${nextIndex} not found`));
-
-            // Update session's lastChunkIndex
-            db.run(
-              'UPDATE sessions SET lastChunkIndex = ? WHERE sessionId = ?',
-              [nextIndex, sessionId],
-              (err) => {
-                if (err) console.warn('Could not update lastChunkIndex:', err);
-                resolve(chunk);
-              }
-            );
-          }
-        );
-      });
-    });
-  });
+  db.prepare('UPDATE sessions SET lastChunkIndex = ? WHERE sessionId = ?').run(nextIndex, sessionId);
+  return chunk;
 }
 
 // Generate PDF-based question using chunk context
@@ -882,16 +744,7 @@ Return ONLY the question as a single sentence.`;
     console.log('✅ PDF-Based Question Generated:', question.substring(0, 80) + '...');
 
     // Get total chunks and PDF filename for metadata
-    const metadata = await new Promise((resolve, reject) => {
-      db.get(
-        'SELECT totalChunks, originalFilename FROM uploaded_files WHERE fileId = ?',
-        [fileId],
-        (err, row) => {
-          if (err) reject(err);
-          else resolve(row || {});
-        }
-      );
-    });
+    const metadata = db.prepare('SELECT totalChunks, originalFilename FROM uploaded_files WHERE fileId = ?').get(fileId) || {};
 
     return {
       question,
@@ -918,12 +771,8 @@ async function determinationGenerationPath(mode, fileId) {
     // Check if a PDF was uploaded in this mode
     let uploadMode = null;
     if (fileId) {
-      uploadMode = await new Promise((resolve, reject) => {
-        db.get('SELECT uploadMode FROM uploaded_files WHERE fileId = ?', [fileId], (err, row) => {
-          if (err) reject(err);
-          else resolve(row?.uploadMode || null);
-        });
-      });
+      const row = db.prepare('SELECT uploadMode FROM uploaded_files WHERE fileId = ?').get(fileId);
+      uploadMode = row?.uploadMode || null;
     }
 
     // Determine the generation path
@@ -1186,16 +1035,7 @@ Return ONLY valid JSON (no markdown!) in this exact format:
       }
 
       // Get PDF metadata
-      const metadata = await new Promise((resolve, reject) => {
-        db.get(
-          'SELECT totalChunks, originalFilename FROM uploaded_files WHERE fileId = ?',
-          [fileId],
-          (err, row) => {
-            if (err) reject(err);
-            else resolve(row || {});
-          }
-        );
-      });
+      const metadata = db.prepare('SELECT totalChunks, originalFilename FROM uploaded_files WHERE fileId = ?').get(fileId) || {};
 
       console.log('✅ PDF MCQ Generated:', mcqData.question.substring(0, 80) + '...');
 
@@ -1303,16 +1143,7 @@ async function generateMultiplePDFQuestions(sessionId, fileId, numberOfQuestions
     console.log(`📊 Distribution: ${perLevel} easy, ${perLevel} medium, ${perLevel + (numberOfQuestions - perLevel * 3)} hard`);
 
     // Get PDF metadata
-    const pdfMetadata = await new Promise((resolve, reject) => {
-      db.get(
-        'SELECT totalChunks, originalFilename FROM uploaded_files WHERE fileId = ?',
-        [fileId],
-        (err, row) => {
-          if (err) reject(err);
-          else resolve(row || {});
-        }
-      );
-    });
+    const pdfMetadata = db.prepare('SELECT totalChunks, originalFilename FROM uploaded_files WHERE fileId = ?').get(fileId) || {};
 
     const allGeneratedQuestions = [];
 
@@ -1395,16 +1226,7 @@ Return ONLY the question as a single sentence.`;
     console.log(`\n📚 Saving ${allGeneratedQuestions.length} questions to local library...`);
     for (const q of allGeneratedQuestions) {
       // Get the chunk text for contextual answer generation
-      const chunk = await new Promise((resolve, reject) => {
-        db.get(
-          'SELECT chunkText FROM pdf_chunks WHERE fileId = ? AND chunkIndex = ?',
-          [fileId, q.chunkIndex],
-          (err, row) => {
-            if (err) reject(err);
-            else resolve(row);
-          }
-        );
-      });
+      const chunk = db.prepare('SELECT chunkText FROM pdf_chunks WHERE fileId = ? AND chunkIndex = ?').get(fileId, q.chunkIndex);
 
       // Generate contextual perfect answer and save (non-blocking)
       if (chunk) {
@@ -1431,44 +1253,28 @@ function delay(ms) {
 }
 
 // Helper: Insert question into cached_questions table
-async function insertCachedQuestion(fileId, questionObj) {
-  return new Promise((resolve, reject) => {
-    db.run(
-      `INSERT INTO cached_questions
-       (fileId, question, difficulty, difficultyEmoji, chunkIndex, totalChunks, chunkType, pdfFilename, pdfBased, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        fileId,
-        questionObj.question,
-        questionObj.difficulty,
-        questionObj.difficultyEmoji,
-        questionObj.chunkIndex,
-        questionObj.totalChunks,
-        questionObj.chunkType,
-        questionObj.pdfFilename,
-        1,  // pdfBased = always true
-        'pdf-ai'
-      ],
-      (err) => {
-        if (err) reject(err);
-        else resolve();
-      }
-    );
-  });
+function insertCachedQuestion(fileId, questionObj) {
+  db.prepare(
+    `INSERT INTO cached_questions
+     (fileId, question, difficulty, difficultyEmoji, chunkIndex, totalChunks, chunkType, pdfFilename, pdfBased, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    fileId,
+    questionObj.question,
+    questionObj.difficulty,
+    questionObj.difficultyEmoji,
+    questionObj.chunkIndex,
+    questionObj.totalChunks,
+    questionObj.chunkType,
+    questionObj.pdfFilename,
+    1,  // pdfBased = always true
+    'pdf-ai'
+  );
 }
 
 // Helper: Update uploaded file status
-async function updateUploadedFileStatus(fileId, status) {
-  return new Promise((resolve, reject) => {
-    db.run(
-      `UPDATE uploaded_files SET status = ? WHERE fileId = ?`,
-      [status, fileId],
-      (err) => {
-        if (err) reject(err);
-        else resolve();
-      }
-    );
-  });
+function updateUploadedFileStatus(fileId, status) {
+  db.prepare(`UPDATE uploaded_files SET status = ? WHERE fileId = ?`).run(status, fileId);
 }
 
 // Background Question Generation - Spawned after PDF upload
@@ -1531,12 +1337,7 @@ async function generateAIQuestion(sessionId = null) {
   // If sessionId provided, check if session has linked PDF
   if (sessionId) {
     try {
-      const session = await new Promise((resolve, reject) => {
-        db.get('SELECT fileId FROM sessions WHERE sessionId = ?', [sessionId], (err, row) => {
-          if (err) reject(err);
-          else resolve(row);
-        });
-      });
+      const session = db.prepare('SELECT fileId FROM sessions WHERE sessionId = ?').get(sessionId);
 
       console.log(`   Session found: ${session ? 'YES' : 'NO'}`);
       if (session) {
@@ -1687,31 +1488,18 @@ async function processPDF(filePath, originalFilename) {
     console.log(`✂️  Created ${chunks.length} intelligent chunks`);
 
     // Store in database
-    await new Promise((resolve, reject) => {
-      db.run(
-        `INSERT INTO uploaded_files (fileId, originalFilename, filePath, fileSize, extractedText, totalChunks, status)
-         VALUES (?, ?, ?, ?, ?, ?, 'ready')`,
-        [fileId, originalFilename, filePath, dataBuffer.length, fullText, chunks.length],
-        (err) => {
-          if (err) reject(err);
-          else resolve();
-        }
-      );
-    });
+    db.prepare(
+      `INSERT INTO uploaded_files (fileId, originalFilename, filePath, fileSize, extractedText, totalChunks, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'ready')`
+    ).run(fileId, originalFilename, filePath, dataBuffer.length, fullText, chunks.length);
 
     // Store chunks
+    const insertChunk = db.prepare(
+      `INSERT INTO pdf_chunks (fileId, chunkIndex, chunkText, chunkType, wordCount)
+       VALUES (?, ?, ?, ?, ?)`
+    );
     for (let i = 0; i < chunks.length; i++) {
-      await new Promise((resolve, reject) => {
-        db.run(
-          `INSERT INTO pdf_chunks (fileId, chunkIndex, chunkText, chunkType, wordCount)
-           VALUES (?, ?, ?, ?, ?)`,
-          [fileId, i, chunks[i].text, chunks[i].type, chunks[i].wordCount],
-          (err) => {
-            if (err) reject(err);
-            else resolve();
-          }
-        );
-      });
+      insertChunk.run(fileId, i, chunks[i].text, chunks[i].type, chunks[i].wordCount);
     }
 
     console.log('✅ PDF processed successfully:', fileId);
@@ -1725,7 +1513,7 @@ async function processPDF(filePath, originalFilename) {
     console.error('❌ PDF processing error:', error.message);
 
     // Update status to failed if record exists
-    db.run(`UPDATE uploaded_files SET status = 'failed' WHERE fileId = ?`, [fileId]);
+    db.prepare(`UPDATE uploaded_files SET status = 'failed' WHERE fileId = ?`).run(fileId);
 
     return {
       success: false,
@@ -1739,55 +1527,49 @@ async function processPDF(filePath, originalFilename) {
 // ========================================
 
 // NEW: Load session's performance history (correct/wrong questions)
-async function loadSessionPerformance(sessionId) {
-  return new Promise((resolve, reject) => {
-    db.all(
+function loadSessionPerformance(sessionId) {
+  try {
+    const rows = db.prepare(
       `SELECT id, question, optionsJSON, correctOption, userAnswer, isCorrect, reviewCount, difficulty
-       FROM mcq_performance WHERE sessionId = ? ORDER BY timestamp DESC`,
-      [sessionId],
-      (err, rows) => {
-        if (err) {
-          console.error('❌ Error loading session performance:', err);
-          resolve({ correctQuestions: [], wrongQuestions: [] });
-          return;
-        }
+       FROM mcq_performance WHERE sessionId = ? ORDER BY timestamp DESC`
+    ).all(sessionId);
 
-        if (!rows || rows.length === 0) {
-          resolve({ correctQuestions: [], wrongQuestions: [] });
-          return;
-        }
+    if (!rows || rows.length === 0) {
+      return { correctQuestions: [], wrongQuestions: [] };
+    }
 
-        const performance = {
-          correctQuestions: rows.filter(r => r.isCorrect).map(r => ({
-            id: r.id,
-            question: r.question,
-            optionsJSON: r.optionsJSON,
-            correctOption: r.correctOption,
-            difficulty: r.difficulty,
-            timestamp: r.timestamp
-          })),
-          wrongQuestions: rows.filter(r => !r.isCorrect && r.reviewCount < 2).map(r => ({
-            id: r.id,
-            question: r.question,
-            optionsJSON: r.optionsJSON,
-            correctOption: r.correctOption,
-            userAnswer: r.userAnswer,
-            reviewCount: r.reviewCount || 0,
-            difficulty: r.difficulty,
-            lastReviewedAt: r.lastReviewedAt
-          }))
-        };
+    const performance = {
+      correctQuestions: rows.filter(r => r.isCorrect).map(r => ({
+        id: r.id,
+        question: r.question,
+        optionsJSON: r.optionsJSON,
+        correctOption: r.correctOption,
+        difficulty: r.difficulty,
+        timestamp: r.timestamp
+      })),
+      wrongQuestions: rows.filter(r => !r.isCorrect && r.reviewCount < 2).map(r => ({
+        id: r.id,
+        question: r.question,
+        optionsJSON: r.optionsJSON,
+        correctOption: r.correctOption,
+        userAnswer: r.userAnswer,
+        reviewCount: r.reviewCount || 0,
+        difficulty: r.difficulty,
+        lastReviewedAt: r.lastReviewedAt
+      }))
+    };
 
-        console.log(`📊 Loaded performance: ${performance.correctQuestions.length} correct, ${performance.wrongQuestions.length} wrong`);
-        resolve(performance);
-      }
-    );
-  });
+    console.log(`📊 Loaded performance: ${performance.correctQuestions.length} correct, ${performance.wrongQuestions.length} wrong`);
+    return performance;
+  } catch (err) {
+    console.error('❌ Error loading session performance:', err);
+    return { correctQuestions: [], wrongQuestions: [] };
+  }
 }
 
 // NEW: Decide whether to return revision question or generate new one (30% probability)
 async function selectNextMCQLogic(sessionId, fileId) {
-  const performance = await loadSessionPerformance(sessionId);
+  const performance = loadSessionPerformance(sessionId);
 
   // 30% probability to show revision question if wrong questions exist
   const shouldShowRevision = performance.wrongQuestions.length > 0 && Math.random() <= 0.3;
@@ -1837,17 +1619,13 @@ app.post('/pdf/upload', upload.single('pdfFile'), async (req, res) => {
       const fileId = result.fileId;
 
       // Store uploadMode in database
-      db.run(
-        'UPDATE uploaded_files SET uploadMode = ?, questionType = ? WHERE fileId = ?',
-        [uploadMode, uploadMode === 'mcq' ? 'mcq' : 'long-form', fileId],
-        (err) => {
-          if (err) {
-            console.error('Error setting uploadMode:', err.message);
-          } else {
-            console.log(`✅ Set uploadMode="${uploadMode}" for ${fileId}`);
-          }
-        }
-      );
+      try {
+        db.prepare('UPDATE uploaded_files SET uploadMode = ?, questionType = ? WHERE fileId = ?')
+          .run(uploadMode, uploadMode === 'mcq' ? 'mcq' : 'long-form', fileId);
+        console.log(`✅ Set uploadMode="${uploadMode}" for ${fileId}`);
+      } catch (err) {
+        console.error('Error setting uploadMode:', err.message);
+      }
 
       // Spawn background question generation (non-blocking)
       console.log(`\n📨 Spawning background generation for ${fileId} (mode: ${uploadMode})...`);
@@ -1876,36 +1654,28 @@ app.post('/pdf/subject', (req, res) => {
 
   console.log(`📚 Setting subject for ${fileId}: ${subject}`);
 
-  db.run(
-    'UPDATE uploaded_files SET subject = ? WHERE fileId = ?',
-    [subject, fileId],
-    (err) => {
-      if (err) {
-        console.error('Error setting subject:', err.message);
-        return res.status(500).json({ success: false, error: err.message });
-      }
-      res.json({ success: true, subject });
-    }
-  );
+  try {
+    db.prepare('UPDATE uploaded_files SET subject = ? WHERE fileId = ?').run(subject, fileId);
+    res.json({ success: true, subject });
+  } catch (err) {
+    console.error('Error setting subject:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // GET: Check PDF processing status
 app.get('/pdf/status/:fileId', (req, res) => {
   const { fileId } = req.params;
 
-  db.get(
-    'SELECT fileId, originalFilename, totalChunks, status, uploadTime FROM uploaded_files WHERE fileId = ?',
-    [fileId],
-    (err, row) => {
-      if (err) {
-        return res.status(500).json({ success: false, error: err.message });
-      }
-      if (!row) {
-        return res.status(404).json({ success: false, error: 'PDF not found' });
-      }
-      res.json({ success: true, ...row });
+  try {
+    const row = db.prepare('SELECT fileId, originalFilename, totalChunks, status, uploadTime FROM uploaded_files WHERE fileId = ?').get(fileId);
+    if (!row) {
+      return res.status(404).json({ success: false, error: 'PDF not found' });
     }
-  );
+    res.json({ success: true, ...row });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // DELETE: Remove uploaded PDF
@@ -1914,31 +1684,15 @@ app.delete('/pdf/:fileId', async (req, res) => {
 
   try {
     // Get file path
-    const file = await new Promise((resolve, reject) => {
-      db.get('SELECT filePath FROM uploaded_files WHERE fileId = ?', [fileId], (err, row) => {
-        if (err) reject(err);
-        else resolve(row);
-      });
-    });
+    const file = db.prepare('SELECT filePath FROM uploaded_files WHERE fileId = ?').get(fileId);
 
     if (!file) {
       return res.status(404).json({ success: false, error: 'PDF not found' });
     }
 
     // Delete from database
-    await new Promise((resolve, reject) => {
-      db.run('DELETE FROM pdf_chunks WHERE fileId = ?', [fileId], (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
-
-    await new Promise((resolve, reject) => {
-      db.run('DELETE FROM uploaded_files WHERE fileId = ?', [fileId], (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+    db.prepare('DELETE FROM pdf_chunks WHERE fileId = ?').run(fileId);
+    db.prepare('DELETE FROM uploaded_files WHERE fileId = ?').run(fileId);
 
     // Delete physical file
     try {
@@ -1957,77 +1711,57 @@ app.delete('/pdf/:fileId', async (req, res) => {
 app.get('/pdf/info/:fileId', (req, res) => {
   const { fileId } = req.params;
 
-  db.get(
-    'SELECT * FROM uploaded_files WHERE fileId = ?',
-    [fileId],
-    (err, file) => {
-      if (err) {
-        return res.status(500).json({ success: false, error: err.message });
-      }
-      if (!file) {
-        return res.status(404).json({ success: false, error: 'PDF not found' });
-      }
-
-      // Get chunks summary
-      db.all(
-        'SELECT chunkIndex, chunkType, wordCount FROM pdf_chunks WHERE fileId = ? ORDER BY chunkIndex',
-        [fileId],
-        (err, chunks) => {
-          if (err) {
-            return res.status(500).json({ success: false, error: err.message });
-          }
-
-          res.json({
-            success: true,
-            file: {
-              fileId: file.fileId,
-              filename: file.originalFilename,
-              totalChunks: file.totalChunks,
-              uploadTime: file.uploadTime,
-              status: file.status
-            },
-            chunks
-          });
-        }
-      );
+  try {
+    const file = db.prepare('SELECT * FROM uploaded_files WHERE fileId = ?').get(fileId);
+    if (!file) {
+      return res.status(404).json({ success: false, error: 'PDF not found' });
     }
-  );
+
+    const chunks = db.prepare('SELECT chunkIndex, chunkType, wordCount FROM pdf_chunks WHERE fileId = ? ORDER BY chunkIndex').all(fileId);
+
+    res.json({
+      success: true,
+      file: {
+        fileId: file.fileId,
+        filename: file.originalFilename,
+        totalChunks: file.totalChunks,
+        uploadTime: file.uploadTime,
+        status: file.status
+      },
+      chunks
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // GET: Check generation progress for pre-generated questions
 app.get('/pdf/generation-progress/:fileId', (req, res) => {
   const { fileId } = req.params;
 
-  // Get file status and count of cached questions
-  db.get('SELECT totalChunks, status FROM uploaded_files WHERE fileId = ?', [fileId], (err, file) => {
-    if (err) {
-      return res.status(500).json({ success: false, error: err.message });
-    }
+  try {
+    const file = db.prepare('SELECT totalChunks, status FROM uploaded_files WHERE fileId = ?').get(fileId);
     if (!file) {
       return res.status(404).json({ success: false, error: 'PDF not found' });
     }
 
-    // Count cached questions
-    db.get('SELECT COUNT(*) as generated FROM cached_questions WHERE fileId = ?', [fileId], (err, row) => {
-      if (err) {
-        return res.status(500).json({ success: false, error: err.message });
-      }
+    const row = db.prepare('SELECT COUNT(*) as generated FROM cached_questions WHERE fileId = ?').get(fileId);
+    const generated = row?.generated || 0;
+    const estimatedTotal = 10;  // Target: 10 questions (1 batch)
+    const percentComplete = Math.round((generated / estimatedTotal) * 100);
 
-      const generated = row?.generated || 0;
-      const estimatedTotal = 10;  // Target: 10 questions (1 batch)
-      const percentComplete = Math.round((generated / estimatedTotal) * 100);
-
-      res.json({
-        success: true,
-        fileId,
-        status: file.status,
-        generated,
-        totalChunks: file.totalChunks,
-        estimatedTotal,
-        percentComplete
-      });
+    res.json({
+      success: true,
+      fileId,
+      status: file.status,
+      generated,
+      totalChunks: file.totalChunks,
+      estimatedTotal,
+      percentComplete
     });
-  });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // GET: Fetch cached pre-generated questions with pagination
@@ -2036,34 +1770,26 @@ app.get('/pdf/cached-questions/:fileId', (req, res) => {
   const limit = parseInt(req.query.limit) || 18;
   const offset = parseInt(req.query.offset) || 0;
 
-  // Get total count and paginated questions
-  db.get('SELECT COUNT(*) as total FROM cached_questions WHERE fileId = ?', [fileId], (err, countRow) => {
-    if (err) {
-      return res.status(500).json({ success: false, error: err.message });
-    }
-
+  try {
+    const countRow = db.prepare('SELECT COUNT(*) as total FROM cached_questions WHERE fileId = ?').get(fileId);
     const total = countRow?.total || 0;
 
-    db.all(
+    const questions = db.prepare(
       `SELECT question, difficulty, difficultyEmoji, chunkIndex, totalChunks, chunkType, pdfFilename, pdfBased, source
-       FROM cached_questions WHERE fileId = ? ORDER BY generatedAt ASC LIMIT ? OFFSET ?`,
-      [fileId, limit, offset],
-      (err, questions) => {
-        if (err) {
-          return res.status(500).json({ success: false, error: err.message });
-        }
+       FROM cached_questions WHERE fileId = ? ORDER BY generatedAt ASC LIMIT ? OFFSET ?`
+    ).all(fileId, limit, offset);
 
-        res.json({
-          success: true,
-          questions: questions || [],
-          total,
-          offset,
-          limit,
-          hasMore: offset + limit < total
-        });
-      }
-    );
-  });
+    res.json({
+      success: true,
+      questions: questions || [],
+      total,
+      offset,
+      limit,
+      hasMore: offset + limit < total
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // POST: Fetch cached pre-generated questions (from frontend with JSON body)
@@ -2076,16 +1802,11 @@ app.post('/pdf/cached-questions', (req, res) => {
 
   console.log(`📦 Fetching cached questions for ${fileId}...`);
 
-  // Get total count and paginated questions
-  db.get('SELECT COUNT(*) as total FROM cached_questions WHERE fileId = ?', [fileId], (err, countRow) => {
-    if (err) {
-      return res.status(500).json({ success: false, error: err.message });
-    }
-
+  try {
+    const countRow = db.prepare('SELECT COUNT(*) as total FROM cached_questions WHERE fileId = ?').get(fileId);
     const total = countRow?.total || 0;
     console.log(`   Found ${total} cached questions`);
 
-    // If no cached questions yet, return empty array with status
     if (total === 0) {
       return res.json({
         success: true,
@@ -2097,26 +1818,22 @@ app.post('/pdf/cached-questions', (req, res) => {
       });
     }
 
-    db.all(
+    const questions = db.prepare(
       `SELECT question, difficulty, difficultyEmoji, chunkIndex, totalChunks, chunkType, pdfFilename, pdfBased, source
-       FROM cached_questions WHERE fileId = ? ORDER BY generatedAt ASC LIMIT ? OFFSET ?`,
-      [fileId, limit, offset],
-      (err, questions) => {
-        if (err) {
-          return res.status(500).json({ success: false, error: err.message });
-        }
+       FROM cached_questions WHERE fileId = ? ORDER BY generatedAt ASC LIMIT ? OFFSET ?`
+    ).all(fileId, limit, offset);
 
-        res.json({
-          success: true,
-          questions: questions || [],
-          total,
-          offset,
-          limit,
-          hasMore: offset + limit < total
-        });
-      }
-    );
-  });
+    res.json({
+      success: true,
+      questions: questions || [],
+      total,
+      offset,
+      limit,
+      hasMore: offset + limit < total
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 
@@ -2515,18 +2232,15 @@ app.post("/mcq-evaluate", async (req, res) => {
 
     // Save to database
     if (sessionId) {
-      db.run(
-        `INSERT INTO attempts (sessionId, questionIndex, question, answer, score, selectedOption, correctOption, isMCQ, questionType, timestamp)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [sessionId, 0, 'MCQ', selectedOption, score, selectedOption, correctOption, 1, 'mcq', new Date().toISOString()],
-        (err) => {
-          if (err) {
-            console.error('❌ Error saving MCQ attempt:', err.message);
-          } else {
-            console.log(`✅ MCQ attempt saved (score: ${score})`);
-          }
-        }
-      );
+      try {
+        db.prepare(
+          `INSERT INTO attempts (sessionId, questionIndex, question, answer, score, selectedOption, correctOption, isMCQ, questionType, timestamp)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(sessionId, 0, 'MCQ', selectedOption, score, selectedOption, correctOption, 1, 'mcq', new Date().toISOString());
+        console.log(`✅ MCQ attempt saved (score: ${score})`);
+      } catch (err) {
+        console.error('❌ Error saving MCQ attempt:', err.message);
+      }
     }
 
     res.json({
@@ -2577,72 +2291,61 @@ app.post("/mcq/evaluate", async (req, res) => {
 
     // ADAPTIVE LEARNING: Update topic performance tracking
     if (topic) {
-      await learningService.updateTopicPerformance(db, sessionId, topic, subtopic, isCorrect);
+      learningService.updateTopicPerformance(db, sessionId, topic, subtopic, isCorrect);
     }
 
     // Save to mcq_performance table (learning history)
-    db.run(
-      `INSERT INTO mcq_performance (
-        sessionId, question, optionsJSON, correctOption, userAnswer,
-        isCorrect, difficulty, reviewCount, lastReviewedAt, topic, subtopic
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
+    try {
+      db.prepare(
+        `INSERT INTO mcq_performance (
+          sessionId, question, optionsJSON, correctOption, userAnswer,
+          isCorrect, difficulty, reviewCount, lastReviewedAt, topic, subtopic
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
         sessionId, question, optionsJSON, correctOption, userAnswer,
         isCorrect, difficulty, reviewCount || 0,
         new Date().toISOString(), topic, subtopic
-      ],
-      function(err) {
-        if (err) {
-          console.error('❌ Error saving to MCQ performance:', err);
-          return res.json({ success: false, error: err.message });
-        }
+      );
+    } catch (err) {
+      console.error('❌ Error saving to MCQ performance:', err);
+      return res.json({ success: false, error: err.message });
+    }
 
-        // Update session statistics
-        db.run(
-          `UPDATE sessions SET
-            totalAttempts = totalAttempts + 1,
-            ${isCorrect ? 'correctAnswers = correctAnswers + 1' : 'wrongAnswers = wrongAnswers + 1'}
-           WHERE sessionId = ?`,
-          [sessionId],
-          (err) => {
-            if (err) {
-              console.error('❌ Error updating session stats:', err);
-            } else {
-              console.log(`✅ Session stats updated: isCorrect=${isCorrect}`);
-            }
+    // Update session statistics
+    try {
+      db.prepare(
+        `UPDATE sessions SET
+          totalAttempts = totalAttempts + 1,
+          ${isCorrect ? 'correctAnswers = correctAnswers + 1' : 'wrongAnswers = wrongAnswers + 1'}
+         WHERE sessionId = ?`
+      ).run(sessionId);
+      console.log(`✅ Session stats updated: isCorrect=${isCorrect}`);
+    } catch (err) {
+      console.error('❌ Error updating session stats:', err);
+    }
 
-            // If revision AND correct AND reviewCount >= 2 → mark for removal
-            if (isRevision && isCorrect && reviewCount >= 2) {
-              db.run(
-                `UPDATE mcq_performance SET markedForRemoval = 1
-                 WHERE sessionId = ? AND question = ? AND correctOption = ?`,
-                [sessionId, question, correctOption],
-                (err) => {
-                  if (!err) {
-                    console.log(`🎓 Question graduated after 2 correct reviews`);
-                  }
-                }
-              );
-            }
+    // If revision AND correct AND reviewCount >= 2 → mark for removal
+    if (isRevision && isCorrect && reviewCount >= 2) {
+      try {
+        db.prepare(
+          `UPDATE mcq_performance SET markedForRemoval = 1
+           WHERE sessionId = ? AND question = ? AND correctOption = ?`
+        ).run(sessionId, question, correctOption);
+        console.log(`🎓 Question graduated after 2 correct reviews`);
+      } catch (err) { /* non-critical */ }
+    }
 
-            // Get updated stats for response
-            db.get(
-              `SELECT correctAnswers, wrongAnswers, totalAttempts
-               FROM sessions WHERE sessionId = ?`,
-              [sessionId],
-              (err, session) => {
-                res.json({
-                  success: true,
-                  isCorrect: isCorrect,
-                  score: score,
-                  stats: session || { correctAnswers: 0, wrongAnswers: 0, totalAttempts: 0 }
-                });
-              }
-            );
-          }
-        );
-      }
-    );
+    // Get updated stats for response
+    const session = db.prepare(
+      `SELECT correctAnswers, wrongAnswers, totalAttempts FROM sessions WHERE sessionId = ?`
+    ).get(sessionId);
+
+    res.json({
+      success: true,
+      isCorrect: isCorrect,
+      score: score,
+      stats: session || { correctAnswers: 0, wrongAnswers: 0, totalAttempts: 0 }
+    });
   } catch (error) {
     console.error('❌ MCQ Evaluate Error:', error.message);
     res.json({ success: false, error: error.message });
@@ -2655,55 +2358,45 @@ app.post("/mcq/session-stats", async (req, res) => {
     const { sessionId } = req.body;
 
     // Get performance history
-    db.all(
+    const attempts = db.prepare(
       `SELECT question, optionsJSON, correctOption, userAnswer, isCorrect, reviewCount
-       FROM mcq_performance WHERE sessionId = ? ORDER BY timestamp DESC LIMIT 100`,
-      [sessionId],
-      (err, attempts) => {
-        if (err) {
-          console.error('❌ Error loading performance history:', err);
-          return res.json({ success: false, error: err.message });
-        }
+       FROM mcq_performance WHERE sessionId = ? ORDER BY timestamp DESC LIMIT 100`
+    ).all(sessionId);
 
-        // Get session stats
-        db.get(
-          `SELECT correctAnswers, wrongAnswers, totalAttempts
-           FROM sessions WHERE sessionId = ?`,
-          [sessionId],
-          (err, session) => {
-            const performance = {
-              correctQuestions: (attempts || []).filter(a => a.isCorrect).map(a => ({
-                question: a.question,
-                correctOption: a.correctOption
-              })),
-              wrongQuestions: (attempts || []).filter(a => !a.isCorrect && a.reviewCount < 2).map(a => ({
-                question: a.question,
-                optionsJSON: a.optionsJSON,
-                correctOption: a.correctOption,
-                userAnswer: a.userAnswer,
-                reviewCount: a.reviewCount
-              }))
-            };
+    // Get session stats
+    const session = db.prepare(
+      `SELECT correctAnswers, wrongAnswers, totalAttempts FROM sessions WHERE sessionId = ?`
+    ).get(sessionId);
 
-            const stats = session || { correctAnswers: 0, wrongAnswers: 0, totalAttempts: 0 };
-            const accuracy = stats.totalAttempts > 0
-              ? Math.round((stats.correctAnswers / stats.totalAttempts) * 100)
-              : 0;
+    const performance = {
+      correctQuestions: (attempts || []).filter(a => a.isCorrect).map(a => ({
+        question: a.question,
+        correctOption: a.correctOption
+      })),
+      wrongQuestions: (attempts || []).filter(a => !a.isCorrect && a.reviewCount < 2).map(a => ({
+        question: a.question,
+        optionsJSON: a.optionsJSON,
+        correctOption: a.correctOption,
+        userAnswer: a.userAnswer,
+        reviewCount: a.reviewCount
+      }))
+    };
 
-            res.json({
-              success: true,
-              performance,
-              stats: {
-                correctCount: stats.correctAnswers,
-                wrongCount: stats.wrongAnswers,
-                totalAttempts: stats.totalAttempts,
-                accuracy: accuracy
-              }
-            });
-          }
-        );
+    const stats = session || { correctAnswers: 0, wrongAnswers: 0, totalAttempts: 0 };
+    const accuracy = stats.totalAttempts > 0
+      ? Math.round((stats.correctAnswers / stats.totalAttempts) * 100)
+      : 0;
+
+    res.json({
+      success: true,
+      performance,
+      stats: {
+        correctCount: stats.correctAnswers,
+        wrongCount: stats.wrongAnswers,
+        totalAttempts: stats.totalAttempts,
+        accuracy: accuracy
       }
-    );
+    });
   } catch (error) {
     console.error('❌ Session Stats Error:', error.message);
     res.json({ success: false, error: error.message });
@@ -2718,32 +2411,23 @@ app.post("/mcq/session-end", async (req, res) => {
     console.log(`🏁 MCQ Session End for ${sessionId} - Cleaning up graduated questions`);
 
     // Count graduated questions (markedForRemoval = 1)
-    db.get(
-      `SELECT COUNT(*) as graduatedCount FROM mcq_performance
-       WHERE sessionId = ? AND markedForRemoval = 1`,
-      [sessionId],
-      (err, result) => {
-        const graduatedCount = result?.graduatedCount || 0;
+    const result = db.prepare(
+      `SELECT COUNT(*) as graduatedCount FROM mcq_performance WHERE sessionId = ? AND markedForRemoval = 1`
+    ).get(sessionId);
+    const graduatedCount = result?.graduatedCount || 0;
 
-        // Delete graduated questions (optional - or just mark them)
-        // For now, we'll just count them and report
-        console.log(`🎓 Session ${sessionId} completed with ${graduatedCount} mastered questions`);
+    console.log(`🎓 Session ${sessionId} completed with ${graduatedCount} mastered questions`);
 
-        // Get final stats
-        db.get(
-          `SELECT correctAnswers, wrongAnswers, totalAttempts
-           FROM sessions WHERE sessionId = ?`,
-          [sessionId],
-          (err, session) => {
-            res.json({
-              success: true,
-              graduatedCount: graduatedCount,
-              finalStats: session || { correctAnswers: 0, wrongAnswers: 0, totalAttempts: 0 }
-            });
-          }
-        );
-      }
-    );
+    // Get final stats
+    const session = db.prepare(
+      `SELECT correctAnswers, wrongAnswers, totalAttempts FROM sessions WHERE sessionId = ?`
+    ).get(sessionId);
+
+    res.json({
+      success: true,
+      graduatedCount: graduatedCount,
+      finalStats: session || { correctAnswers: 0, wrongAnswers: 0, totalAttempts: 0 }
+    });
   } catch (error) {
     console.error('❌ Session End Error:', error.message);
     res.json({ success: false, error: error.message });
@@ -2842,31 +2526,29 @@ app.post("/progress/save", (req, res) => {
 
     const cleanUsername = username.trim().substring(0, 50);
 
-    db.run(
-      `INSERT INTO attempts (
-        sessionId, username, questionIndex, question, answer, score,
-        source, chunkIndex, pdfBased, difficulty, topic
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
+    try {
+      db.prepare(
+        `INSERT INTO attempts (
+          sessionId, username, questionIndex, question, answer, score,
+          source, chunkIndex, pdfBased, difficulty, topic
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
         sessionId, cleanUsername, questionIndex, question, answer, validScore,
         source || 'ai', chunkIndex || null, pdfBased ? 1 : 0,
         difficulty || 'generic', topic || null
-      ],
-      (err) => {
-        if (err) {
-          console.error('❌ Failed to save attempt:', err.message);
-          return res.status(500).json({
-            success: false,
-            error: 'Failed to save progress'
-          });
-        }
+      );
 
-        // NEW: Update user stats after each attempt
-        updateUserStats(cleanUsername, validScore === 10 ? 1 : 0, validScore === 0 ? 1 : 0, topic);
+      // NEW: Update user stats after each attempt
+      updateUserStats(cleanUsername, validScore === 10 ? 1 : 0, validScore === 0 ? 1 : 0, topic);
 
-        res.json({ success: true, message: 'Progress saved' });
-      }
-    );
+      res.json({ success: true, message: 'Progress saved' });
+    } catch (dbErr) {
+      console.error('❌ Failed to save attempt:', dbErr.message);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to save progress'
+      });
+    }
   } catch (error) {
     console.error('❌ Progress save error:', error.message);
     res.status(500).json({
@@ -2879,66 +2561,48 @@ app.post("/progress/save", (req, res) => {
 // NEW: Helper function to update user stats
 function updateUserStats(username, isCorrect, isWrong, topic) {
   try {
-    db.get(
-      `SELECT * FROM user_stats WHERE username = ?`,
-      [username],
-      (err, row) => {
-        if (err) {
-          console.error('❌ Error fetching user stats:', err.message);
-          return;
-        }
+    const row = db.prepare(`SELECT * FROM user_stats WHERE username = ?`).get(username);
 
-        if (!row) {
-          console.error('⚠️ User stats not found for:', username);
-          return;
-        }
+    if (!row) {
+      console.error('⚠️ User stats not found for:', username);
+      return;
+    }
 
-        const newTotal = row.total_attempted + 1;
-        const newCorrect = row.correct + (isCorrect ? 1 : 0);
-        const newWrong = row.wrong + (isWrong ? 1 : 0);
-        const newAccuracy = (newCorrect / newTotal * 100).toFixed(2);
+    const newTotal = row.total_attempted + 1;
+    const newCorrect = row.correct + (isCorrect ? 1 : 0);
+    const newWrong = row.wrong + (isWrong ? 1 : 0);
+    const newAccuracy = (newCorrect / newTotal * 100).toFixed(2);
 
-        // Update topic stats if provided
-        let topics = {};
-        try {
-          topics = row.topics_performance ? JSON.parse(row.topics_performance) : {};
-        } catch (e) {
-          console.error('❌ JSON parse error:', e.message);
-          topics = {};
-        }
+    // Update topic stats if provided
+    let topics = {};
+    try {
+      topics = row.topics_performance ? JSON.parse(row.topics_performance) : {};
+    } catch (e) {
+      console.error('❌ JSON parse error:', e.message);
+      topics = {};
+    }
 
-        if (topic) {
-          if (!topics[topic]) {
-            topics[topic] = { correct: 0, total: 0 };
-          }
-          topics[topic].correct += isCorrect ? 1 : 0;
-          topics[topic].total += 1;
-        }
-
-        // Update user_stats
-        db.run(
-          `UPDATE user_stats SET
-           total_attempted = ?,
-           correct = ?,
-           wrong = ?,
-           accuracy_percent = ?,
-           topics_performance = ?,
-           last_updated = CURRENT_TIMESTAMP
-           WHERE username = ?`,
-          [
-            newTotal, newCorrect, newWrong, newAccuracy,
-            JSON.stringify(topics), username
-          ],
-          (err) => {
-            if (err) {
-              console.error('❌ Error updating user stats:', err.message);
-            } else {
-              console.log(`📊 Updated stats for ${username}: ${newCorrect}/${newTotal} (${newAccuracy}%)`);
-            }
-          }
-        );
+    if (topic) {
+      if (!topics[topic]) {
+        topics[topic] = { correct: 0, total: 0 };
       }
-    );
+      topics[topic].correct += isCorrect ? 1 : 0;
+      topics[topic].total += 1;
+    }
+
+    // Update user_stats
+    db.prepare(
+      `UPDATE user_stats SET
+       total_attempted = ?,
+       correct = ?,
+       wrong = ?,
+       accuracy_percent = ?,
+       topics_performance = ?,
+       last_updated = CURRENT_TIMESTAMP
+       WHERE username = ?`
+    ).run(newTotal, newCorrect, newWrong, newAccuracy, JSON.stringify(topics), username);
+
+    console.log(`📊 Updated stats for ${username}: ${newCorrect}/${newTotal} (${newAccuracy}%)`);
   } catch (error) {
     console.error('❌ Stats update error:', error.message);
   }
@@ -2954,20 +2618,17 @@ app.post("/progress/session", (req, res) => {
   console.log(`   mode: ${mode}`);
   console.log(`   fileId: ${fileId || 'NONE'}`);
 
-  db.run(
-    `INSERT OR IGNORE INTO sessions (sessionId, mode, startTime, fileId) VALUES (?, ?, ?, ?)`,
-    [sessionId, mode, startTime, fileId || null],
-    (err) => {
-      if (err) {
-        console.error('❌ Failed to create session:', err);
-        return res.json({ success: false });
-      }
-      console.log(`✅ Session created: ${sessionId}`);
-      console.log(`   Mode: ${mode}`);
-      console.log(`   PDF: ${fileId ? `✅ Linked to ${fileId}` : '❌ No PDF'}`);
-      res.json({ success: true, sessionId, startTime, fileId });
-    }
-  );
+  try {
+    db.prepare(`INSERT OR IGNORE INTO sessions (sessionId, mode, startTime, fileId) VALUES (?, ?, ?, ?)`)
+      .run(sessionId, mode, startTime, fileId || null);
+    console.log(`✅ Session created: ${sessionId}`);
+    console.log(`   Mode: ${mode}`);
+    console.log(`   PDF: ${fileId ? `✅ Linked to ${fileId}` : '❌ No PDF'}`);
+    res.json({ success: true, sessionId, startTime, fileId });
+  } catch (err) {
+    console.error('❌ Failed to create session:', err);
+    res.json({ success: false });
+  }
 });
 
 // NEW: Register or get user stats
@@ -2986,65 +2647,51 @@ app.post('/user/register', (req, res) => {
     const cleanUsername = username.trim().substring(0, 50); // Prevent injection
 
     // Check if user exists
-    db.get(
-      `SELECT * FROM user_stats WHERE username = ?`,
-      [cleanUsername],
-      (err, row) => {
-        if (err) {
-          console.error('❌ User lookup error:', err.message);
-          return res.status(500).json({
-            success: false,
-            error: 'Database error'
-          });
+    const row = db.prepare(`SELECT * FROM user_stats WHERE username = ?`).get(cleanUsername);
+
+    if (row) {
+      // User exists - return their stats
+      return res.json({
+        success: true,
+        isNewUser: false,
+        username: cleanUsername,
+        stats: {
+          total_attempted: row.total_attempted,
+          correct: row.correct,
+          wrong: row.wrong,
+          accuracy: row.accuracy_percent,
+          lastSession: row.last_session_id
         }
+      });
+    }
 
-        if (row) {
-          // User exists - return their stats
-          return res.json({
-            success: true,
-            isNewUser: false,
-            username: cleanUsername,
-            stats: {
-              total_attempted: row.total_attempted,
-              correct: row.correct,
-              wrong: row.wrong,
-              accuracy: row.accuracy_percent,
-              lastSession: row.last_session_id
-            }
-          });
-        }
+    // NEW user - create entry
+    try {
+      db.prepare(
+        `INSERT INTO user_stats (username, total_attempted, correct, wrong, accuracy_percent, topics_performance)
+         VALUES (?, 0, 0, 0, 0, '{}')`
+      ).run(cleanUsername);
+    } catch (dbErr) {
+      console.error('❌ User creation error:', dbErr.message);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to create user'
+      });
+    }
 
-        // NEW user - create entry
-        db.run(
-          `INSERT INTO user_stats (username, total_attempted, correct, wrong, accuracy_percent, topics_performance)
-           VALUES (?, 0, 0, 0, 0, '{}')`,
-          [cleanUsername],
-          (err) => {
-            if (err) {
-              console.error('❌ User creation error:', err.message);
-              return res.status(500).json({
-                success: false,
-                error: 'Failed to create user'
-              });
-            }
+    console.log(`✅ New user created: ${cleanUsername}`);
 
-            console.log(`✅ New user created: ${cleanUsername}`);
-
-            res.json({
-              success: true,
-              isNewUser: true,
-              username: cleanUsername,
-              stats: {
-                total_attempted: 0,
-                correct: 0,
-                wrong: 0,
-                accuracy: 0
-              }
-            });
-          }
-        );
+    res.json({
+      success: true,
+      isNewUser: true,
+      username: cleanUsername,
+      stats: {
+        total_attempted: 0,
+        correct: 0,
+        wrong: 0,
+        accuracy: 0
       }
-    );
+    });
   } catch (error) {
     console.error('❌ Registration error:', error.message);
     res.status(500).json({
@@ -3069,74 +2716,62 @@ app.get('/user/stats/:username', (req, res) => {
 
     const cleanUsername = username.trim().substring(0, 50);
 
-    db.get(
-      `SELECT * FROM user_stats WHERE username = ?`,
-      [cleanUsername],
-      (err, row) => {
-        if (err) {
-          console.error('❌ Stats lookup error:', err.message);
-          return res.status(500).json({
-            success: false,
-            error: 'Database error'
-          });
-        }
+    const row = db.prepare(`SELECT * FROM user_stats WHERE username = ?`).get(cleanUsername);
 
-        if (!row) {
-          return res.json({
-            success: true,
-            found: false,
-            username: cleanUsername
-          });
-        }
+    if (!row) {
+      return res.json({
+        success: true,
+        found: false,
+        username: cleanUsername
+      });
+    }
 
-        // Parse topics JSON
-        let topics = {};
-        try {
-          topics = row.topics_performance ? JSON.parse(row.topics_performance) : {};
-        } catch (e) {
-          console.error('❌ JSON parse error:', e.message);
-          topics = {};
-        }
+    // Parse topics JSON
+    let topics = {};
+    try {
+      topics = row.topics_performance ? JSON.parse(row.topics_performance) : {};
+    } catch (e) {
+      console.error('❌ JSON parse error:', e.message);
+      topics = {};
+    }
 
-        // Calculate weak/strong topics
-        const weakTopics = Object.entries(topics)
-          .filter(([_, stats]) => stats.total > 0 && (stats.correct / stats.total * 100) < 70)
-          .map(([topic, stats]) => ({
-            topic,
-            accuracy: Math.round((stats.correct / stats.total) * 100),
-            attempts: stats.total
-          }))
-          .sort((a, b) => a.accuracy - b.accuracy)
-          .slice(0, 5);
+    // Calculate weak/strong topics
+    const weakTopics = Object.entries(topics)
+      .filter(([_, stats]) => stats.total > 0 && (stats.correct / stats.total * 100) < 70)
+      .map(([topic, stats]) => ({
+        topic,
+        accuracy: Math.round((stats.correct / stats.total) * 100),
+        attempts: stats.total
+      }))
+      .sort((a, b) => a.accuracy - b.accuracy)
+      .slice(0, 5);
 
-        const strongTopics = Object.entries(topics)
-          .filter(([_, stats]) => stats.total > 0 && (stats.correct / stats.total * 100) >= 70)
-          .map(([topic, stats]) => ({
-            topic,
-            accuracy: Math.round((stats.correct / stats.total) * 100),
-            attempts: stats.total
-          }))
-          .sort((a, b) => b.accuracy - a.accuracy)
-          .slice(0, 5);
+    const strongTopics = Object.entries(topics)
+      .filter(([_, stats]) => stats.total > 0 && (stats.correct / stats.total * 100) >= 70)
+      .map(([topic, stats]) => ({
+        topic,
+        accuracy: Math.round((stats.correct / stats.total) * 100),
+        attempts: stats.total
+      }))
+      .sort((a, b) => b.accuracy - a.accuracy)
+      .slice(0, 5);
 
-        console.log(`📊 Stats for ${cleanUsername}: ${row.correct}/${row.total_attempted} (${row.accuracy_percent}%)`);
+    console.log(`📊 Stats for ${cleanUsername}: ${row.correct}/${row.total_attempted} (${row.accuracy_percent}%)`);
 
-        res.json({
-          success: true,
-          found: true,
-          username: cleanUsername,
-          stats: {
-            totalAttempted: row.total_attempted,
-            correct: row.correct,
-            wrong: row.wrong,
-            accuracy: Math.round(row.accuracy_percent),
-            weakTopics: weakTopics,
-            strongTopics: strongTopics
-          },
-          lastUpdated: row.last_updated
-        });
-      }
-    );
+    res.json({
+      success: true,
+      found: true,
+      username: cleanUsername,
+      stats: {
+        totalAttempted: row.total_attempted,
+        correct: row.correct,
+        wrong: row.wrong,
+        accuracy: Math.round(row.accuracy_percent),
+        weakTopics: weakTopics,
+        strongTopics: strongTopics
+      },
+      lastUpdated: row.last_updated
+    });
   } catch (error) {
     console.error('❌ Stats error:', error.message);
     res.status(500).json({
@@ -3150,47 +2785,38 @@ app.get('/user/stats/:username', (req, res) => {
 app.get("/progress/session/:sessionId", (req, res) => {
   const { sessionId } = req.params;
 
-  db.all(
-    `SELECT * FROM attempts WHERE sessionId = ? ORDER BY timestamp DESC LIMIT 50`,
-    [sessionId],
-    (err, rows) => {
-      if (err) {
-        console.error('❌ Failed to load progress:', err);
-        return res.json({ success: false, attempts: [] });
-      }
-      res.json({ success: true, attempts: rows || [] });
-    }
-  );
+  try {
+    const rows = db.prepare(`SELECT * FROM attempts WHERE sessionId = ? ORDER BY timestamp DESC LIMIT 50`).all(sessionId);
+    res.json({ success: true, attempts: rows || [] });
+  } catch (err) {
+    console.error('❌ Failed to load progress:', err);
+    res.json({ success: false, attempts: [] });
+  }
 });
 
 // GET: Statistics
 app.get("/progress/stats/:sessionId", (req, res) => {
   const { sessionId } = req.params;
 
-  db.all(
-    `SELECT score FROM attempts WHERE sessionId = ? AND score > 0`,
-    [sessionId],
-    (err, rows) => {
-      if (err) {
-        return res.json({ success: false, stats: {} });
+  try {
+    const rows = db.prepare(`SELECT score FROM attempts WHERE sessionId = ? AND score > 0`).all(sessionId);
+    const scores = rows ? rows.map(r => r.score) : [];
+    const totalAttempts = scores.length;
+    const averageScore = totalAttempts > 0 ? (scores.reduce((a, b) => a + b, 0) / totalAttempts).toFixed(2) : 0;
+    const maxScore = totalAttempts > 0 ? Math.max(...scores) : 0;
+
+    res.json({
+      success: true,
+      stats: {
+        totalAttempts,
+        averageScore,
+        maxScore,
+        lastAttempt: rows && rows[0] ? rows[0].timestamp : null
       }
-
-      const scores = rows ? rows.map(r => r.score) : [];
-      const totalAttempts = scores.length;
-      const averageScore = totalAttempts > 0 ? (scores.reduce((a, b) => a + b, 0) / totalAttempts).toFixed(2) : 0;
-      const maxScore = totalAttempts > 0 ? Math.max(...scores) : 0;
-
-      res.json({
-        success: true,
-        stats: {
-          totalAttempts,
-          averageScore,
-          maxScore,
-          lastAttempt: rows && rows[0] ? rows[0].timestamp : null
-        }
-      });
-    }
-  );
+    });
+  } catch (err) {
+    res.json({ success: false, stats: {} });
+  }
 });
 
 // NEW: Generate session summary with weak/strong topics
@@ -3209,78 +2835,77 @@ app.post('/progress/session-summary', (req, res) => {
     const cleanUsername = username.trim().substring(0, 50);
 
     // Get all attempts in this session
-    db.all(
-      `SELECT score, topic FROM attempts WHERE sessionId = ? AND username = ? ORDER BY timestamp DESC`,
-      [sessionId, cleanUsername],
-      (err, rows) => {
-        if (err) {
-          console.error('❌ Error loading session attempts:', err.message);
-          return res.status(500).json({
-            success: false,
-            error: 'Failed to load session'
-          });
+    let rows;
+    try {
+      rows = db.prepare(
+        `SELECT score, topic FROM attempts WHERE sessionId = ? AND username = ? ORDER BY timestamp DESC`
+      ).all(sessionId, cleanUsername);
+    } catch (err) {
+      console.error('❌ Error loading session attempts:', err.message);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to load session'
+      });
+    }
+
+    if (!rows || rows.length === 0) {
+      return res.json({
+        success: true,
+        score: '0/0',
+        accuracy: '0%',
+        weakTopics: [],
+        strongTopics: []
+      });
+    }
+
+    // Calculate session stats
+    const totalQuestions = rows.length;
+    const correctAnswers = rows.filter(r => r.score === 10).length;
+    const accuracy = Math.round((correctAnswers / totalQuestions) * 100);
+
+    // Build topic stats for this session
+    const topicStats = {};
+    rows.forEach(row => {
+      if (row.topic) {
+        if (!topicStats[row.topic]) {
+          topicStats[row.topic] = { correct: 0, total: 0 };
         }
-
-        if (!rows || rows.length === 0) {
-          return res.json({
-            success: true,
-            score: '0/0',
-            accuracy: '0%',
-            weakTopics: [],
-            strongTopics: []
-          });
-        }
-
-        // Calculate session stats
-        const totalQuestions = rows.length;
-        const correctAnswers = rows.filter(r => r.score === 10).length;
-        const accuracy = Math.round((correctAnswers / totalQuestions) * 100);
-
-        // Build topic stats for this session
-        const topicStats = {};
-        rows.forEach(row => {
-          if (row.topic) {
-            if (!topicStats[row.topic]) {
-              topicStats[row.topic] = { correct: 0, total: 0 };
-            }
-            topicStats[row.topic].correct += row.score === 10 ? 1 : 0;
-            topicStats[row.topic].total += 1;
-          }
-        });
-
-        // Identify weak and strong topics
-        const weakTopics = Object.entries(topicStats)
-          .filter(([_, stats]) => stats.total > 0 && (stats.correct / stats.total * 100) < 70)
-          .map(([topic, stats]) => ({
-            topic,
-            accuracy: Math.round((stats.correct / stats.total) * 100),
-            attempts: stats.total
-          }))
-          .sort((a, b) => a.accuracy - b.accuracy);
-
-        const strongTopics = Object.entries(topicStats)
-          .filter(([_, stats]) => stats.total > 0 && (stats.correct / stats.total * 100) >= 70)
-          .map(([topic, stats]) => ({
-            topic,
-            accuracy: Math.round((stats.correct / stats.total) * 100),
-            attempts: stats.total
-          }))
-          .sort((a, b) => b.accuracy - a.accuracy);
-
-        console.log(`📋 Session Summary: ${correctAnswers}/${totalQuestions} (${accuracy}%) for ${cleanUsername}`);
-
-        res.json({
-          success: true,
-          score: `${correctAnswers}/${totalQuestions}`,
-          accuracy: `${accuracy}%`,
-          weakTopics: weakTopics,
-          strongTopics: strongTopics,
-          questionsAttempted: totalQuestions,
-          correct: correctAnswers,
-          incorrect: totalQuestions - correctAnswers
-        });
+        topicStats[row.topic].correct += row.score === 10 ? 1 : 0;
+        topicStats[row.topic].total += 1;
       }
-    );
+    });
+
+    // Identify weak and strong topics
+    const weakTopics = Object.entries(topicStats)
+      .filter(([_, stats]) => stats.total > 0 && (stats.correct / stats.total * 100) < 70)
+      .map(([topic, stats]) => ({
+        topic,
+        accuracy: Math.round((stats.correct / stats.total) * 100),
+        attempts: stats.total
+      }))
+      .sort((a, b) => a.accuracy - b.accuracy);
+
+    const strongTopics = Object.entries(topicStats)
+      .filter(([_, stats]) => stats.total > 0 && (stats.correct / stats.total * 100) >= 70)
+      .map(([topic, stats]) => ({
+        topic,
+        accuracy: Math.round((stats.correct / stats.total) * 100),
+        attempts: stats.total
+      }))
+      .sort((a, b) => b.accuracy - a.accuracy);
+
+    console.log(`📋 Session Summary: ${correctAnswers}/${totalQuestions} (${accuracy}%) for ${cleanUsername}`);
+
+    res.json({
+      success: true,
+      score: `${correctAnswers}/${totalQuestions}`,
+      accuracy: `${accuracy}%`,
+      weakTopics: weakTopics,
+      strongTopics: strongTopics,
+      questionsAttempted: totalQuestions,
+      correct: correctAnswers,
+      incorrect: totalQuestions - correctAnswers
+    });
   } catch (error) {
     console.error('❌ Session summary error:', error.message);
     res.status(500).json({
@@ -3298,31 +2923,14 @@ app.post('/progress/session-summary', (req, res) => {
 app.get('/library/subjects', (req, res) => {
   console.log('📚 Fetching library subjects...');
 
-  libraryDb.all(
-    `SELECT subject, COUNT(*) as count FROM library_questions GROUP BY subject ORDER BY count DESC`,
-    (err, rows) => {
-      if (err) {
-        return res.status(500).json({ success: false, error: err.message });
-      }
-
-      const subjects = rows.map(r => ({
-        subject: r.subject,
-        count: r.count
-      }));
-
-      // Get total questions
-      libraryDb.get(
-        'SELECT COUNT(*) as total FROM library_questions',
-        (err, totalsRow) => {
-          res.json({
-            success: true,
-            subjects,
-            total: totalsRow?.total || 0
-          });
-        }
-      );
-    }
-  );
+  try {
+    const rows = libraryDb.prepare(`SELECT subject, COUNT(*) as count FROM library_questions GROUP BY subject ORDER BY count DESC`).all();
+    const subjects = rows.map(r => ({ subject: r.subject, count: r.count }));
+    const totalsRow = libraryDb.prepare('SELECT COUNT(*) as total FROM library_questions').get();
+    res.json({ success: true, subjects, total: totalsRow?.total || 0 });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // GET: Browse library questions by subject and difficulty
@@ -3353,17 +2961,12 @@ app.get('/library/questions', (req, res) => {
   query += ' ORDER BY created_date DESC LIMIT ? OFFSET ?';
   params.push(parseInt(limit), parseInt(offset));
 
-  libraryDb.all(query, params, (err, rows) => {
-    if (err) {
-      return res.status(500).json({ success: false, error: err.message });
-    }
-
-    res.json({
-      success: true,
-      questions: rows || [],
-      total: rows?.length || 0
-    });
-  });
+  try {
+    const rows = libraryDb.prepare(query).all(params);
+    res.json({ success: true, questions: rows || [], total: rows?.length || 0 });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // POST: Question fallback when AI is down (Mix library + cached)
@@ -3373,26 +2976,29 @@ app.post('/question/fallback', (req, res) => {
 
     if (useLibrary) {
       // Try to get from library
-      libraryDb.get(
-        'SELECT question, perfect_answer, subject, difficulty FROM library_questions ORDER BY RANDOM() LIMIT 1',
-        (err, libraryQuestion) => {
-          if (err || !libraryQuestion) {
-            console.log('   Library fetch failed, trying cache...');
-            // Fall back to cache if library fails
-            return fallbackToCache(req, res);
-          }
+      try {
+        const libraryQuestion = libraryDb.prepare(
+          'SELECT question, perfect_answer, subject, difficulty FROM library_questions ORDER BY RANDOM() LIMIT 1'
+        ).get();
 
-          res.json({
-            success: true,
-            question: libraryQuestion.question,
-            perfect_answer: libraryQuestion.perfect_answer,
-            source: 'local-library',
-            subject: libraryQuestion.subject,
-            difficulty: libraryQuestion.difficulty,
-            note: 'Serving from local library (AI temporarily unavailable)'
-          });
+        if (!libraryQuestion) {
+          console.log('   Library fetch failed, trying cache...');
+          return fallbackToCache(req, res);
         }
-      );
+
+        res.json({
+          success: true,
+          question: libraryQuestion.question,
+          perfect_answer: libraryQuestion.perfect_answer,
+          source: 'local-library',
+          subject: libraryQuestion.subject,
+          difficulty: libraryQuestion.difficulty,
+          note: 'Serving from local library (AI temporarily unavailable)'
+        });
+      } catch (err) {
+        console.log('   Library fetch failed, trying cache...');
+        return fallbackToCache(req, res);
+      }
     } else {
       // Try cache first
       fallbackToCache(req, res);
@@ -3403,23 +3009,26 @@ app.post('/question/fallback', (req, res) => {
   }
 
   function fallbackToCache(req, res) {
-    db.get(
-      'SELECT question, difficulty, pdfBased, chunkType FROM cached_questions ORDER BY RANDOM() LIMIT 1',
-      (err, cachedQuestion) => {
-        if (err || !cachedQuestion) {
-          return res.status(404).json({ success: false, error: 'No fallback questions available' });
-        }
+    try {
+      const cachedQuestion = db.prepare(
+        'SELECT question, difficulty, pdfBased, chunkType FROM cached_questions ORDER BY RANDOM() LIMIT 1'
+      ).get();
 
-        res.json({
-          success: true,
-          question: cachedQuestion.question,
-          source: 'cached',
-          difficulty: cachedQuestion.difficulty,
-          pdfBased: cachedQuestion.pdfBased,
-          note: 'Serving from cache (AI temporarily unavailable)'
-        });
+      if (!cachedQuestion) {
+        return res.status(404).json({ success: false, error: 'No fallback questions available' });
       }
-    );
+
+      res.json({
+        success: true,
+        question: cachedQuestion.question,
+        source: 'cached',
+        difficulty: cachedQuestion.difficulty,
+        pdfBased: cachedQuestion.pdfBased,
+        note: 'Serving from cache (AI temporarily unavailable)'
+      });
+    } catch (err) {
+      res.status(404).json({ success: false, error: 'No fallback questions available' });
+    }
   }
 });
 
@@ -3427,21 +3036,17 @@ app.post('/question/fallback', (req, res) => {
 app.get('/library/export', (req, res) => {
   console.log('📦 Exporting library...');
 
-  libraryDb.all(
-    'SELECT * FROM library_questions ORDER BY created_date DESC',
-    (err, questions) => {
-      if (err) {
-        return res.status(500).json({ success: false, error: err.message });
-      }
-
-      res.json({
-        success: true,
-        export_date: new Date().toISOString(),
-        total_questions: questions.length,
-        questions
-      });
-    }
-  );
+  try {
+    const questions = libraryDb.prepare('SELECT * FROM library_questions ORDER BY created_date DESC').all();
+    res.json({
+      success: true,
+      export_date: new Date().toISOString(),
+      total_questions: questions.length,
+      questions
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // ========================================

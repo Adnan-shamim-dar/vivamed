@@ -4,7 +4,7 @@
  * Ready for MongoDB/PostgreSQL swap in the future
  */
 
-const sqlite3 = require('sqlite3').verbose();
+const Database = require('better-sqlite3');
 const fs = require('fs').promises;
 const { PROGRESS_DB, LIBRARY_DB, DATA_DIR } = require('../config/constants');
 const { createProgressTables, createLibraryTables } = require('./schema');
@@ -27,26 +27,18 @@ const db = {
 
     try {
       // Initialize progress database
-      progressDb = new sqlite3.Database(PROGRESS_DB, (err) => {
-        if (err) {
-          console.error('❌ Error opening progress.db:', err.message);
-        } else {
-          console.log(`✅ Progress database connected: ${PROGRESS_DB}`);
-        }
-      });
+      progressDb = new Database(PROGRESS_DB);
+      progressDb.pragma('journal_mode = WAL');
+      console.log(`✅ Progress database connected: ${PROGRESS_DB}`);
 
-      await createProgressTables(progressDb);
+      createProgressTables(progressDb);
 
       // Initialize library database
-      libraryDb = new sqlite3.Database(LIBRARY_DB, (err) => {
-        if (err) {
-          console.error('❌ Error opening library.db:', err.message);
-        } else {
-          console.log(`✅ Library database connected: ${LIBRARY_DB}`);
-        }
-      });
+      libraryDb = new Database(LIBRARY_DB);
+      libraryDb.pragma('journal_mode = WAL');
+      console.log(`✅ Library database connected: ${LIBRARY_DB}`);
 
-      await createLibraryTables(libraryDb);
+      createLibraryTables(libraryDb);
     } catch (error) {
       console.error('❌ Database initialization failed:', error.message);
       throw error;
@@ -74,54 +66,46 @@ const db = {
   },
 
   /**
-   * Promise wrapper for db.all() - returns array of rows
+   * Returns all matching rows (synchronous better-sqlite3, wrapped in a resolved Promise
+   * for API compatibility with existing callers that use await).
    */
   all(database, sql, params = []) {
-    return new Promise((resolve, reject) => {
-      database.all(sql, params, (err, rows) => {
-        if (err) {
-          console.error('❌ DB all() error:', err.message);
-          reject(err);
-        } else {
-          resolve(rows || []);
-        }
-      });
-    });
+    try {
+      const rows = database.prepare(sql).all(params);
+      return Promise.resolve(rows || []);
+    } catch (err) {
+      console.error('❌ DB all() error:', err.message);
+      return Promise.reject(err);
+    }
   },
 
   /**
-   * Promise wrapper for db.get() - returns single row
+   * Returns a single row (synchronous better-sqlite3, wrapped in a resolved Promise).
    */
   get(database, sql, params = []) {
-    return new Promise((resolve, reject) => {
-      database.get(sql, params, (err, row) => {
-        if (err) {
-          console.error('❌ DB get() error:', err.message);
-          reject(err);
-        } else {
-          resolve(row || null);
-        }
-      });
-    });
+    try {
+      const row = database.prepare(sql).get(params);
+      return Promise.resolve(row || null);
+    } catch (err) {
+      console.error('❌ DB get() error:', err.message);
+      return Promise.reject(err);
+    }
   },
 
   /**
-   * Promise wrapper for db.run() - INSERT/UPDATE/DELETE
+   * Executes an INSERT/UPDATE/DELETE (synchronous better-sqlite3, wrapped in a resolved Promise).
    */
   run(database, sql, params = []) {
-    return new Promise((resolve, reject) => {
-      database.run(sql, params, function(err) {
-        if (err) {
-          console.error('❌ DB run() error:', err.message);
-          reject(err);
-        } else {
-          resolve({
-            id: this.lastID,
-            changes: this.changes
-          });
-        }
+    try {
+      const result = database.prepare(sql).run(params);
+      return Promise.resolve({
+        id: result.lastInsertRowid,
+        changes: result.changes
       });
-    });
+    } catch (err) {
+      console.error('❌ DB run() error:', err.message);
+      return Promise.reject(err);
+    }
   }
 };
 
