@@ -21,6 +21,6 @@ COPY . .
 # Create directories
 RUN mkdir -p data uploads
 
-EXPOSE 5555
+EXPOSE 8080
 
 CMD ["node", "server.js"]
