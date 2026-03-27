@@ -2019,43 +2019,98 @@ async function fetchQuestionsFromServer(count) {
     const questions = [];
 
     for (let i = 0; i < count; i++) {
-      try {
-        const response = await fetch('/question', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId: appState.sessionId,
-            subject: appState.pdfSubject  // Pass subject for library organization
-          }),
-          timeout: 10000  // 10 second timeout
-        });
+      let questionLoaded = false;
 
-        if (response.ok) {
-          const data = await response.json();
-          if (data.question) {
-            questions.push(data);
+      // LEVEL 1: Try to get from API with retry logic
+      for (let retryCount = 0; retryCount < 3; retryCount++) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+          // Use GET endpoint (server only has GET for /question)
+          const response = await fetch(`/question?sessionId=${appState.sessionId}`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal
+          });
+
+          clearTimeout(timeoutId);
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.question) {
+              questions.push(data);
+              // Cache successful question in localStorage
+              const cacheKey = `question_${Date.now()}_${Math.random()}`;
+              localStorage.setItem(`cached_${cacheKey}`, JSON.stringify(data));
+              questionLoaded = true;
+              break;
+            }
+          }
+        } catch (error) {
+          console.warn(`API fetch attempt ${retryCount + 1}/3 failed:`, error.message);
+          if (retryCount < 2) {
+            await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))); // Exponential backoff
           }
         }
-      } catch (error) {
-        console.error('Error fetching question', i, ':', error);
-        // Try fallback
+      }
+
+      // LEVEL 2: If API failed, try cached questions from localStorage
+      if (!questionLoaded) {
         try {
-          const fallbackResponse = await fetch('/question/fallback', {
-            method: 'POST',
+          const cachedKeys = Object.keys(localStorage).filter(key => key.startsWith('cached_'));
+          if (cachedKeys.length > 0) {
+            const randomKey = cachedKeys[Math.floor(Math.random() * cachedKeys.length)];
+            const cachedQ = JSON.parse(localStorage.getItem(randomKey));
+            if (cachedQ && cachedQ.question) {
+              console.log('📚 Using cached question from localStorage');
+              questions.push({ ...cachedQ, source: 'cached' });
+              questionLoaded = true;
+            }
+          }
+        } catch (cacheError) {
+          console.warn('Failed to load from cache:', cacheError.message);
+        }
+      }
+
+      // LEVEL 3: Try /question/fallback endpoint (guaranteed hardcoded question)
+      if (!questionLoaded) {
+        try {
+          const fallbackResponse = await fetch('/question/fallback?sessionId=' + appState.sessionId, {
+            method: 'GET',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionId: appState.sessionId })
+            signal: AbortSignal.timeout(5000)
           });
 
           if (fallbackResponse.ok) {
             const fallbackData = await fallbackResponse.json();
             if (fallbackData.question) {
-              console.log('📚 Using fallback question:', fallbackData.source);
+              console.log('📚 Using /fallback endpoint question');
               questions.push(fallbackData);
+              questionLoaded = true;
             }
           }
         } catch (fallbackError) {
-          console.error('Fallback also failed');
+          console.warn('Fallback endpoint failed:', fallbackError.message);
         }
+      }
+
+      // LEVEL 4: Last resort - hardcoded fallback questions built into frontend
+      if (!questionLoaded) {
+        const hardcodedFallbacks = [
+          { question: "Explain the pathophysiology of Type 2 Diabetes Mellitus", source: "hardcoded", pdfBased: false },
+          { question: "Describe the Frank-Starling mechanism of cardiac contraction", source: "hardcoded", pdfBased: false },
+          { question: "What are the causes and clinical features of acute myocardial infarction?", source: "hardcoded", pdfBased: false },
+          { question: "Explain the renin-angiotensin-aldosterone system (RAAS)", source: "hardcoded", pdfBased: false },
+          { question: "Describe the pathophysiology of heart failure", source: "hardcoded", pdfBased: false },
+          { question: "What is the mechanism of action of ACE inhibitors?", source: "hardcoded", pdfBased: false },
+          { question: "Explain the phases of the cardiac action potential", source: "hardcoded", pdfBased: false },
+          { question: "Give mechanisms of acute coronary syndrome", source: "hardcoded", pdfBased: false }
+        ];
+        const randomFallback = hardcodedFallbacks[Math.floor(Math.random() * hardcodedFallbacks.length)];
+        console.log('🆘 Using HARDCODED fallback question');
+        questions.push(randomFallback);
+        questionLoaded = true;
       }
     }
 

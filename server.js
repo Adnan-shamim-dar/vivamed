@@ -2242,6 +2242,85 @@ app.get("/question", async (req, res) => {
   }
 });
 
+// ========================================
+// BULLETPROOF FALLBACK ENDPOINT
+// ========================================
+app.get("/question/fallback", (req, res) => {
+  try {
+    // GUARANTEED hardcoded questions that will ALWAYS work
+    const guaranteedFallbacks = [
+      {
+        question: "Explain the pathophysiology of Type 2 Diabetes Mellitus",
+        difficulty: "medium",
+        source: "guaranteed-fallback"
+      },
+      {
+        question: "Describe the Frank-Starling mechanism of cardiac contraction",
+        difficulty: "hard",
+        source: "guaranteed-fallback"
+      },
+      {
+        question: "What are the causes and clinical features of acute myocardial infarction?",
+        difficulty: "hard",
+        source: "guaranteed-fallback"
+      },
+      {
+        question: "Explain the renin-angiotensin-aldosterone system (RAAS) and its role in blood pressure regulation",
+        difficulty: "hard",
+        source: "guaranteed-fallback"
+      },
+      {
+        question: "Describe the pathophysiology of systolic and diastolic heart failure",
+        difficulty: "hard",
+        source: "guaranteed-fallback"
+      },
+      {
+        question: "What are the mechanisms of action and clinical uses of ACE inhibitors?",
+        difficulty: "medium",
+        source: "guaranteed-fallback"
+      },
+      {
+        question: "Explain the phases of the cardiac action potential and involved ion channels",
+        difficulty: "hard",
+        source: "guaranteed-fallback"
+      },
+      {
+        question: "Give the mechanisms of acute coronary syndrome and how it differs from chronic ischemic heart disease",
+        difficulty: "hard",
+        source: "guaranteed-fallback"
+      }
+    ];
+
+    const randomFallback = guaranteedFallbacks[Math.floor(Math.random() * guaranteedFallbacks.length)];
+
+    res.json({
+      question: randomFallback.question,
+      source: randomFallback.source,
+      difficulty: randomFallback.difficulty,
+      chunkIndex: null,
+      totalChunks: null,
+      chunkType: null,
+      pdfFilename: null,
+      pdfBased: false,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ Fallback endpoint error:', error.message);
+    // Even if there's an error, return a hardcoded question
+    res.json({
+      question: "What are the key differences between Type 1 and Type 2 diabetes mellitus?",
+      source: "guaranteed-fallback (error recovery)",
+      difficulty: "easy",
+      chunkIndex: null,
+      totalChunks: null,
+      chunkType: null,
+      pdfFilename: null,
+      pdfBased: false,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // POST: Batch question generation (for zero-latency multi-queue preloading)
 app.post("/questions/batch", async (req, res) => {
   try {
