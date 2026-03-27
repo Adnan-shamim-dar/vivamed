@@ -1903,7 +1903,7 @@ async function startMode(mode) {
     // START PRELOADING IN BACKGROUND (only if global preload didn't fill cache)
     if (appState.mcqPreloadCache.length === 0) {
       console.log('💡 Global preload cache empty, starting mode-level preload...');
-      preloadMCQQuestions(3, true);
+      preloadMCQQuestions(15, true);  // INCREASED from 3 to 15 to prevent repetition
     } else {
       console.log(`✨ Using globally preloaded questions! (${appState.mcqPreloadCache.length} ready)`);
     }
@@ -1913,7 +1913,7 @@ async function startMode(mode) {
 
     // Start background MCQ preloading (non-blocking)
     setTimeout(() => {
-      preloadMCQQuestions(5); // Preload 5 questions in background
+      preloadMCQQuestions(20); // INCREASED from 5 to 20 - fetches aggressively in background
     }, 100);
   } else {
     // NEW: Practice/Exam mode - instant load with background preload
@@ -2307,7 +2307,7 @@ async function preloadMCQQuestions(count = 5, parallel = false) {
   try {
     if (appState.mcqPreloadInProgress) return;
     if (!appState.mcqMode) return; // Only preload if in MCQ mode
-    if (appState.mcqPreloadCache.length >= count) return; // Cache full
+    if (appState.mcqPreloadCache.length >= count * 2) return; // Cache full (doubled threshold)
 
     appState.mcqPreloadInProgress = true;
 
@@ -2323,7 +2323,7 @@ async function preloadMCQQuestions(count = 5, parallel = false) {
           body: JSON.stringify({
             sessionId: appState.sessionId,
             fileId: fileId,
-            difficulty: 'medium'
+            difficulty: ['easy', 'medium', 'hard'][Math.floor(Math.random() * 3)]  // VARY difficulty
           })
         }).then(r => r.ok ? r.json() : null).catch(e => {
           console.warn(`⚠️ MCQ preload ${i + 1} failed:`, e.message);
@@ -2332,12 +2332,13 @@ async function preloadMCQQuestions(count = 5, parallel = false) {
       );
 
       const results = await Promise.all(fetchPromises);
-      const loadedCount = results.filter(r => r !== null).length;
-      appState.mcqPreloadCache = results.filter(r => r !== null);
-      console.log(`⚡ Parallel preload complete: loaded ${loadedCount}/${count} questions`);
+      const validResults = results.filter(r => r !== null);
+      // ADD to cache instead of replacing it
+      appState.mcqPreloadCache.push(...validResults);
+      console.log(`⚡ Parallel preload complete: loaded ${validResults.length}/${count} questions`);
     } else {
-      // SEQUENTIAL fetch for refilling (to avoid overwhelming server)
-      for (let i = 0; i < count; i++) {
+      // SEQUENTIAL fetch for refilling (to avoid overwhelming server) - INCREASED COUNT
+      for (let i = 0; i < Math.max(count, 10); i++) {  // At least 10 per refill
         if (!appState.mcqMode) break;
 
         try {
@@ -2347,14 +2348,14 @@ async function preloadMCQQuestions(count = 5, parallel = false) {
             body: JSON.stringify({
               sessionId: appState.sessionId,
               fileId: fileId,
-              difficulty: 'medium'
+              difficulty: ['easy', 'medium', 'hard'][Math.floor(Math.random() * 3)]  // VARY difficulty
             })
           });
 
           if (response.ok) {
             const mcqData = await response.json();
             appState.mcqPreloadCache.push(mcqData);
-            console.log(`✅ Preloaded MCQ ${i + 1}/${count}. Cache size: ${appState.mcqPreloadCache.length}`);
+            console.log(`✅ Preloaded MCQ ${i + 1}/${Math.max(count, 10)}. Cache size: ${appState.mcqPreloadCache.length}`);
           }
         } catch (e) {
           console.warn(`⚠️ MCQ preload ${i + 1} failed:`, e.message);
@@ -2365,9 +2366,9 @@ async function preloadMCQQuestions(count = 5, parallel = false) {
 
     appState.mcqPreloadInProgress = false;
 
-    // Refill when cache gets low (sequential to avoid overload)
-    if (appState.mcqMode && appState.mcqPreloadCache.length < 2) {
-      setTimeout(() => preloadMCQQuestions(3, false), 1000);
+    // Refill when cache gets very low (sequential to avoid overload)
+    if (appState.mcqMode && appState.mcqPreloadCache.length < 5) {  // Refill earlier (< 5 instead of < 2)
+      setTimeout(() => preloadMCQQuestions(10, false), 1000);  // Fetch 10 at a time
     }
   } catch (error) {
     console.error('❌ MCQ preload batch failed:', error);
@@ -3421,8 +3422,8 @@ async function loadMCQQuestion() {
       console.log('⚡ Using preloaded MCQ from cache (instant load)');
 
       // Trigger background preload to refill cache
-      if (appState.mcqPreloadCache.length < 3) {
-        preloadMCQQuestions(3, false); // Sequential refill to avoid overwhelming server
+      if (appState.mcqPreloadCache.length < 5) {
+        preloadMCQQuestions(10, false); // INCREASED from 3 to 10, trigger earlier (< 5 instead of < 3)
       }
     } else if (appState.mcqPreloadInProgress) {
       // WAIT PATH: Preloading is in progress, wait a bit for first question
