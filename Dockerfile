@@ -1,24 +1,26 @@
-FROM node:22-slim
+FROM node:20-slim
 
 WORKDIR /app
 
-# Install build tools for compiling native modules
-RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
+# Bust cache and install build dependencies
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy package files
-COPY package*.json ./
+# Copy only package files first
+COPY package.json ./
 
-# Install dependencies fresh (builds sqlite3 for Linux)
-RUN npm install --only=production
+# Install dependencies - fresh build of sqlite3 for this Linux environment
+RUN npm install --no-optional
 
-# Copy app
+# Copy rest of app
 COPY . .
 
-# Create data directory
+# Create directories
 RUN mkdir -p data uploads
 
-# Expose port
 EXPOSE 5555
 
-# Start server
 CMD ["node", "server.js"]
