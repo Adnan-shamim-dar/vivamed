@@ -1132,17 +1132,17 @@ window.addEventListener('DOMContentLoaded', async () => {
   setTimeout(async () => {
     try {
       appState.mcqPreloadCache = [];
-      console.log('🔵 Preloading 5 MCQ questions in parallel...');
+      console.log('🔵 Preloading 15 MCQ questions in parallel (increased from 5 to prevent repetition)...');
 
-      // Parallel fetch of 5 questions (uses Promise.all for speed)
-      const fetchPromises = Array(5).fill(null).map((_, i) =>
+      // Parallel fetch of 15 questions (uses Promise.all for speed) - INCREASED FROM 5
+      const fetchPromises = Array(15).fill(null).map((_, i) =>
         fetch('/mcq-question', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             sessionId: 'preload_session',  // Dummy session for preload
             fileId: null,
-            difficulty: 'medium'
+            difficulty: ['easy', 'medium', 'hard'][Math.floor(Math.random() * 3)]  // Vary difficulty
           })
         }).then(r => r.ok ? r.json() : null).catch(e => {
           console.warn(`⚠️ Preload question ${i + 1} failed:`, e.message);
@@ -1919,8 +1919,8 @@ async function startMode(mode) {
     // NEW: Practice/Exam mode - instant load with background preload
     console.log(`🚀 ${mode.charAt(0).toUpperCase() + mode.slice(1)} Mode: Starting with instant local question load`);
 
-    // STEP 1: Immediately preload local questions (< 100ms)
-    const localLoaded = await preloadLocalQuestions(mode, 5);
+    // STEP 1: Immediately preload local questions (< 100ms) - LOAD 15 TO PREVENT REPETITION
+    const localLoaded = await preloadLocalQuestions(mode, 15);
     console.log(`✅ Pre-loaded ${localLoaded} local questions`);
 
     // STEP 2: Build initial questions array from queue (instant display)
@@ -2157,36 +2157,86 @@ async function preloadLocalQuestions(mode, count = 5) {
 
     appState.queueStatus.local.loading = true;
 
-    // Determine question type based on mode
-    const questionType = mode === 'mcq' ? 'mcq' : 'long-form';
+    // Fetch from /question endpoint with multiple attempts (WORKING ENDPOINT)
+    const questions = [];
+    const batchSize = Math.max(count, 10); // Fetch at least 10 to avoid repetition
 
-    // Fetch from library/questions endpoint
-    const params = new URLSearchParams({
-      limit: count,
-      questionType: questionType,
-      subject: appState.globalSelectedSubject || ''  // NEW: Add subject filter
-    });
+    for (let i = 0; i < batchSize; i++) {
+      try {
+        // Retry logic: try 3 times before giving up
+        let success = false;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-    const response = await fetch(`/library/questions?${params}`);
-    const data = await response.json();
+            const response = await fetch(`/question?sessionId=${appState.sessionId}`, {
+              method: 'GET',
+              headers: { 'Content-Type': 'application/json' },
+              signal: controller.signal
+            });
 
-    if (data.success && data.questions.length > 0) {
-      // Format questions to match queue structure
-      const formatted = data.questions.map(q => ({
-        ...q,
-        source: 'local',
-        pdfBased: false,
-        difficulty: q.difficulty || 'medium'
-      }));
+            clearTimeout(timeoutId);
 
-      // Add to queue (don't exceed maximum)
-      const available = appState.queueMaximumSize - appState.questionQueues.local.length;
-      appState.questionQueues.local.push(...formatted.slice(0, available));
+            if (response.ok) {
+              const data = await response.json();
+              if (data.question) {
+                questions.push({
+                  question: data.question,
+                  source: data.source || 'ai',
+                  pdfBased: data.pdfBased || false,
+                  difficulty: data.difficulty || 'medium',
+                  questionType: 'long-form'
+                });
+                success = true;
+                break;
+              }
+            }
+          } catch (error) {
+            if (attempt < 2) {
+              await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1))); // Exponential backoff
+            }
+          }
+        }
 
-      console.log(`✅ Loaded ${formatted.length} local questions. Queue size: ${appState.questionQueues.local.length}`);
-      appState.queueStatus.local.loading = false;
-      return formatted.length;
+        if (!success) {
+          // Try /question/fallback endpoint
+          try {
+            const fallbackResponse = await fetch(`/question/fallback?sessionId=${appState.sessionId}`, {
+              method: 'GET',
+              signal: AbortSignal.timeout(3000)
+            });
+            if (fallbackResponse.ok) {
+              const fallbackData = await fallbackResponse.json();
+              if (fallbackData.question) {
+                questions.push({
+                  question: fallbackData.question,
+                  source: fallbackData.source || 'fallback',
+                  pdfBased: false,
+                  difficulty: fallbackData.difficulty || 'medium',
+                  questionType: 'long-form'
+                });
+              }
+            }
+          } catch (fallbackError) {
+            // Continue with next iteration
+          }
+        }
+      } catch (error) {
+        // Continue trying other questions
+      }
     }
+
+    // Shuffle questions to prevent repetition patterns
+    const shuffled = questions.sort(() => Math.random() - 0.5);
+
+    // Add to queue (don't exceed maximum)
+    const available = appState.queueMaximumSize - appState.questionQueues.local.length;
+    appState.questionQueues.local.push(...shuffled.slice(0, available));
+
+    console.log(`✅ Loaded ${shuffled.length} questions. Local queue size: ${appState.questionQueues.local.length}`);
+    appState.queueStatus.local.loading = false;
+    return shuffled.length;
   } catch (error) {
     console.error('❌ Local preload failed:', error);
     appState.queueStatus.local.loading = false;
