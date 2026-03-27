@@ -3476,7 +3476,7 @@ app.use(express.static(__dirname))
 async function startServer() {
   await setupDatabase();
 
-  const PORT = process.env.PORT || 9996;
+  const PORT = process.env.PORT || 5555;
   const server = app.listen(PORT, () => {
     console.log("\n🏥 Medical Viva Trainer");
     console.log("📝 Questions available:", questionBank.length);
