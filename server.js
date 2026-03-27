@@ -59,7 +59,7 @@ const CONFIG_KEYS = Object.freeze({
   PERFECT_ANSWER: 'perfectAnswer'
 });
 
-const DEFAULT_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
+const DEFAULT_MODEL = 'arcee-ai/trinity-large-preview:free';
 const SELECTED_MODEL = process.env.AI_MODEL || DEFAULT_MODEL;
 
 const AI_MODEL_CONFIG = {

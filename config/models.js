@@ -11,7 +11,7 @@ const CONFIG_KEYS = Object.freeze({
   PERFECT_ANSWER: 'perfectAnswer'
 });
 
-const DEFAULT_MODEL = 'stepfun/step-3.5-flash:free';
+const DEFAULT_MODEL = 'arcee-ai/trinity-large-preview:free';
 const SELECTED_MODEL = process.env.AI_MODEL || DEFAULT_MODEL;
 
 /**
