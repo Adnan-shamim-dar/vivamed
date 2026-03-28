@@ -3394,10 +3394,10 @@ app.post("/mcq-question", async (req, res) => {
         console.log(`🔄 Error fallback was recent, trying another...`);
         const altFallback = getFallbackMCQ(diff);
         addQuestionToSession(sessionId, altFallback.question);
-        return res.json({ ...altFallback, isRevision: false, reviewCount: 0 });
+        return res.json(randomizeOptions({ ...altFallback, isRevision: false, reviewCount: 0 }));
       }
       addQuestionToSession(sessionId, fallback.question);
-      return res.json({ ...fallback, isRevision: false, reviewCount: 0 });
+      return res.json(randomizeOptions({ ...fallback, isRevision: false, reviewCount: 0 }));
     }
   } catch (error) {
     console.error('❌ MCQ Endpoint Error:', error.message);
@@ -3411,10 +3411,41 @@ app.post("/mcq-question", async (req, res) => {
       console.log(`🔄 Final fallback was recent, trying another...`);
       const altFallback = getFallbackMCQ(diff);
       if (sessionId) addQuestionToSession(sessionId, altFallback.question);
-      return res.json({ ...altFallback, isRevision: false, reviewCount: 0 });
+      return res.json(randomizeOptions({ ...altFallback, isRevision: false, reviewCount: 0 }));
     }
     if (sessionId) addQuestionToSession(sessionId, fallback.question);
-    return res.json({ ...fallback, isRevision: false, reviewCount: 0 });
+    return res.json(randomizeOptions({ ...fallback, isRevision: false, reviewCount: 0 }));
+  }
+});
+
+// TEST ENDPOINT: Get 20 MCQ questions to verify randomization
+app.post("/mcq-test-20", async (req, res) => {
+  try {
+    const { difficulty = 'medium' } = req.body;
+    const questions = [];
+    let correctPositions = { A: 0, B: 0, C: 0, D: 0 };
+
+    for (let i = 0; i < 20; i++) {
+      const fallback = getFallbackMCQ(difficulty);
+      const randomized = randomizeOptions(fallback);
+
+      questions.push({
+        q: i + 1,
+        question: randomized.question.substring(0, 50),
+        correctOption: randomized.correctOption
+      });
+
+      correctPositions[randomized.correctOption]++;
+    }
+
+    res.json({
+      totalQuestions: 20,
+      distribution: correctPositions,
+      questions: questions,
+      note: "If randomization works, distribution should be roughly A:5, B:5, C:5, D:5 (±2)"
+    });
+  } catch (error) {
+    res.json({ error: error.message });
   }
 });
 
