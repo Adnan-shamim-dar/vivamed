@@ -3187,36 +3187,51 @@ function addQuestionToSession(sessionId, question) {
   console.log(`✅ Tracked question (${sessionQuestionCache[sessionId].length}/15 in cache)`);
 }
 
+// PROPER FISHER-YATES SHUFFLE
+function shuffleArray(array) {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
 // Randomize MCQ option positions (so correct answer isn't always "A")
 function randomizeOptions(question) {
   if (!question || !question.options) return question;
 
+  // Handle both camelCase and lowercase field names
+  const correctOption = question.correctOption || question.correctoption;
+  if (!correctOption) return question;
+
   const options = question.options;
-  const correctOption = question.correctOption;
 
-  // Get option values and shuffle their order
-  const entries = Object.entries(options); // [['A', value], ['B', value], ...]
-  const shuffled = entries.sort(() => Math.random() - 0.5);
+  // Get all option keys in order: A, B, C, D
+  const optionKeys = ['A', 'B', 'C', 'D'].filter(key => key in options);
 
-  // Map old positions to new positions
+  // Shuffle the keys using proper Fisher-Yates
+  const shuffledKeys = shuffleArray(optionKeys);
+
+  // Create mapping from old position to new position
   const positionMap = {};
-  shuffled.forEach((entry, newIndex) => {
-    const oldKey = entry[0];
-    const newKey = String.fromCharCode(65 + newIndex); // A, B, C, D
+  optionKeys.forEach((oldKey) => {
+    const newIndex = shuffledKeys.indexOf(oldKey);
+    const newKey = ['A', 'B', 'C', 'D'][newIndex];
     positionMap[oldKey] = newKey;
   });
 
-  // Create new options object with shuffled values
+  // Create new options with shuffled positions
   const newOptions = {};
-  const newOrder = ['A', 'B', 'C', 'D'];
-  shuffled.forEach((entry, index) => {
-    newOptions[newOrder[index]] = entry[1];
+  shuffledKeys.forEach((key, index) => {
+    newOptions['ABCD'[index]] = options[key];
   });
 
   return {
     ...question,
     options: newOptions,
-    correctOption: positionMap[correctOption] // Update correct answer position
+    correctOption: positionMap[correctOption],
+    correctoption: positionMap[correctOption] // Support both fields
   };
 }
 
@@ -3308,7 +3323,7 @@ app.post("/mcq-question", async (req, res) => {
       if (dbQuestion) {
         console.log(`✅ MCQ from database: "${dbQuestion.question.substring(0, 60)}..."`);
         addQuestionToSession(sessionId, dbQuestion.question);
-        return res.json({ ...dbQuestion, isRevision: false, reviewCount: 0 });
+        return res.json(randomizeOptions({ ...dbQuestion, isRevision: false, reviewCount: 0 }));
       }
       console.log('⚠️  No database result, falling through to API/fallback');
     } catch (dbError) {
@@ -3325,10 +3340,10 @@ app.post("/mcq-question", async (req, res) => {
         console.log(`🔄 Fallback was recent, trying another...`);
         const altFallback = getFallbackMCQ(diff);
         addQuestionToSession(sessionId, altFallback.question);
-        return res.json({ ...altFallback, isRevision: false, reviewCount: 0 });
+        return res.json(randomizeOptions({ ...altFallback, isRevision: false, reviewCount: 0 }));
       }
       addQuestionToSession(sessionId, fallback.question);
-      return res.json({ ...fallback, isRevision: false, reviewCount: 0 });
+      return res.json(randomizeOptions({ ...fallback, isRevision: false, reviewCount: 0 }));
     }
 
     console.log('✅ API key detected, attempting AI MCQ generation...');
