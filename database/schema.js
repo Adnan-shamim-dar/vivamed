@@ -1,8 +1,12 @@
 /**
  * Database Schema Definitions
- * Extracted from original server.js - EXACT SAME STRUCTURE
- * All CREATE TABLE statements in one place
+ * Supports both SQLite and PostgreSQL
  */
+
+function isPostgres(db) {
+  // PostgreSQL pool has query method, SQLite has run method
+  return typeof db.query === 'function' && !db.run;
+}
 
 /**
  * Initialize progress database tables
@@ -224,18 +228,31 @@ async function createLibraryTables(db) {
 }
 
 /**
- * Helper: Run async wrapper for db.run with error handling
+ * Helper: Run async wrapper for db.run / pool.query with error handling
  */
 function runAsync(db, sql, suppressErrors = false) {
   return new Promise((resolve) => {
-    db.run(sql, (err) => {
-      if (err) {
-        if (!suppressErrors && !err.message.includes('duplicate column') && !err.message.includes('already exists')) {
-          console.error('❌ Schema error:', err.message);
+    if (isPostgres(db)) {
+      // PostgreSQL: use pool.query()
+      db.query(sql)
+        .then(() => resolve())
+        .catch((err) => {
+          if (!suppressErrors && !err.message.includes('duplicate') && !err.message.includes('already exists')) {
+            console.error('❌ Schema error:', err.message);
+          }
+          resolve();
+        });
+    } else {
+      // SQLite: use db.run()
+      db.run(sql, (err) => {
+        if (err) {
+          if (!suppressErrors && !err.message.includes('duplicate column') && !err.message.includes('already exists')) {
+            console.error('❌ Schema error:', err.message);
+          }
         }
-      }
-      resolve();
-    });
+        resolve();
+      });
+    }
   });
 }
 
