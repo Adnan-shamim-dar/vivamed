@@ -95,7 +95,16 @@ const db = {
         await createLibraryTables(libraryDb);
       } else {
         console.log('📦 Using SQLite (local development mode)');
-        const sqlite3 = require('sqlite3').verbose();
+        let sqlite3;
+        try {
+          sqlite3 = require('sqlite3').verbose();
+        } catch (err) {
+          console.error('⚠️  sqlite3 not available (expected on Railway). Trying PostgreSQL...');
+          if (!usePostgresMode()) {
+            throw new Error('Neither SQLite nor PostgreSQL is configured. Cannot initialize databases.');
+          }
+          return; // Exit and let PostgreSQL handle it
+        }
         const { createProgressTables, createLibraryTables } = require('./schema');
 
         try {
