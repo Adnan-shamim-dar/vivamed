@@ -3187,51 +3187,47 @@ function addQuestionToSession(sessionId, question) {
   console.log(`✅ Tracked question (${sessionQuestionCache[sessionId].length}/15 in cache)`);
 }
 
-// PROPER FISHER-YATES SHUFFLE
-function shuffleArray(array) {
-  const shuffled = [...array];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
-}
-
-// Randomize MCQ option positions (so correct answer isn't always "A")
+// SIMPLE & BULLETPROOF: Shuffle option VALUES, not keys
 function randomizeOptions(question) {
   if (!question || !question.options) return question;
 
-  // Handle both camelCase and lowercase field names
+  // Get correct option (handle both cases)
   const correctOption = question.correctOption || question.correctoption;
   if (!correctOption) return question;
 
   const options = question.options;
 
-  // Get all option keys in order: A, B, C, D
-  const optionKeys = ['A', 'B', 'C', 'D'].filter(key => key in options);
+  // Get the CORRECT ANSWER VALUE (the actual text)
+  const correctAnswerValue = options[correctOption];
+  if (!correctAnswerValue) return question; // Safety check
 
-  // Shuffle the keys using proper Fisher-Yates
-  const shuffledKeys = shuffleArray(optionKeys);
+  // Get all option values in order
+  const allValues = ['A', 'B', 'C', 'D']
+    .filter(key => key in options)
+    .map(key => options[key]);
 
-  // Create mapping from old position to new position
-  const positionMap = {};
-  optionKeys.forEach((oldKey) => {
-    const newIndex = shuffledKeys.indexOf(oldKey);
-    const newKey = ['A', 'B', 'C', 'D'][newIndex];
-    positionMap[oldKey] = newKey;
-  });
+  // Shuffle the VALUES using Fisher-Yates
+  const shuffled = [...allValues];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
 
-  // Create new options with shuffled positions
+  // Create new options with shuffled order
   const newOptions = {};
-  shuffledKeys.forEach((key, index) => {
-    newOptions['ABCD'[index]] = options[key];
+  const newCorrectPosition = String.fromCharCode(65 + shuffled.indexOf(correctAnswerValue)); // Find where correct answer ended up
+
+  shuffled.forEach((value, index) => {
+    newOptions[String.fromCharCode(65 + index)] = value; // A=65, B=66, C=67, D=68
   });
+
+  console.log(`🎲 MCQ RANDOMIZED: Correct answer now at position ${newCorrectPosition} (was ${correctOption})`);
 
   return {
     ...question,
     options: newOptions,
-    correctOption: positionMap[correctOption],
-    correctoption: positionMap[correctOption] // Support both fields
+    correctOption: newCorrectPosition,
+    correctoption: newCorrectPosition // Support both
   };
 }
 
