@@ -224,19 +224,35 @@ async function createLibraryTables(db) {
 }
 
 /**
- * Helper: Run async wrapper for db.run with error handling
+ * Helper: Run async wrapper for db.run / pool.query with error handling
  */
 function runAsync(db, sql, suppressErrors = false) {
   return new Promise((resolve) => {
-    db.run(sql, (err) => {
-      if (err) {
-        if (!suppressErrors && !err.message.includes('duplicate column') && !err.message.includes('already exists')) {
-          console.error('❌ Schema error:', err.message);
+    const isPostgres = typeof db.query === 'function' && !db.run;
+
+    if (isPostgres) {
+      // PostgreSQL: use pool.query()
+      db.query(sql)
+        .then(() => resolve())
+        .catch((err) => {
+          if (!suppressErrors && !err.message.includes('duplicate') && !err.message.includes('already exists')) {
+            console.error('❌ Schema error:', err.message);
+          }
+          resolve();
+        });
+    } else {
+      // SQLite: use db.run()
+      db.run(sql, (err) => {
+        if (err) {
+          if (!suppressErrors && !err.message.includes('duplicate column') && !err.message.includes('already exists')) {
+            console.error('❌ Schema error:', err.message);
+          }
         }
-      }
-      resolve();
-    });
+        resolve();
+      });
+    }
   });
+}
 }
 
 module.exports = {
