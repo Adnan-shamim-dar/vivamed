@@ -980,7 +980,7 @@ async function determinationGenerationPath(mode, fileId) {
     if (fileId) {
       uploadMode = await new Promise((resolve, reject) => {
         db.get('SELECT uploadmode FROM uploaded_files WHERE fileid = ?', [fileid], (err, row) => {          if (err) reject(err);
-          else resolve(row$1.uploadmode || null);
+          else resolve(row.uploadmode || null);
         });
 
       });
@@ -2350,7 +2350,7 @@ app.post('/pdf/upload', upload.single('pdfFile'), async (req, res) => {
 
       // Store uploadMode in database
       db.run(        'UPDATE uploaded_files SET uploadmode = ?, questiontype = ? WHERE fileid = ?',
-        [uploadmode, uploadmode === 'mcq' $1 'mcq' : 'long-form', fileid],
+        [uploadmode, uploadmode === 'mcq' ? 'mcq' : 'long-form', fileid],
         (err) => {
           if (err) {
             console.error('Error setting uploadmode:', err.message);
@@ -2524,7 +2524,7 @@ app.get('/pdf/generation-progress/:fileId', (req, res) => {
         return res.status(500).json({ success: false, error: err.message });
       }
 
-      const generated = row$1.generated || 0;
+      const generated = row.generated || 0;
       const estimatedTotal = 10;  // Target: 10 questions (1 batch)
       const percentComplete = Math.round((generated / estimatedTotal) * 100);
 
@@ -2553,7 +2553,7 @@ app.get('/pdf/cached-questions/:fileId', (req, res) => {
       return res.status(500).json({ success: false, error: err.message });
     }
 
-    const total = countRow$1.total || 0;
+    const total = countRow.total || 0;
 
     db.all(
       `SELECT question, difficulty, difficultyemoji, chunkindex, totalchunks, chunktype, pdffilename, pdfbased, source
@@ -2593,7 +2593,7 @@ app.post('/pdf/cached-questions', (req, res) => {
       return res.status(500).json({ success: false, error: err.message });
     }
 
-    const total = countRow$1.total || 0;
+    const total = countRow.total || 0;
     console.log(`   Found ${total} cached questions`);
 
     // If no cached questions yet, return empty array with status
@@ -3393,7 +3393,7 @@ app.post("/mcq-evaluate", async (req, res) => {
     if (sessionId) {
       db.run(        `INSERT INTO attempts (sessionid, questionindex, question, answer, score, selectedoption, correctoption, ismcq, questiontype, timestamp)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [sessionid, 0, 'MCQ', Array.isArray(selectedoption) $11 selectedoption.join(',') : selectedoption, score, selectedoption.toString(), correctoption, 1, choice_type || 'single', new Date().toISOString()],
+        [sessionid, 0, 'MCQ', Array.isArray(selectedoption) ? selectedoption.join(',') : selectedoption, score, selectedoption.toString(), correctoption, 1, choice_type || 'single', new Date().toISOString()],
         (err) => {
           if (err) {
             console.error('❌ Error saving MCQ attempt:', err.message);
@@ -3477,7 +3477,7 @@ app.post("/mcq/evaluate", async (req, res) => {
         db.run(
           `UPDATE sessions SET
             totalattempts = totalattempts + 1,
-            ${iscorrect $12 'correctanswers = correctanswers + 1' : 'wronganswers = wronganswers + 1'}
+            ${iscorrect ? 'correctanswers = correctanswers + 1' : 'wronganswers = wronganswers + 1'}
            WHERE sessionid = $13`,
           [sessionid],
           (err) => {
@@ -3563,7 +3563,7 @@ app.post("/mcq/session-stats", async (req, res) => {
 
             const stats = session || { correctanswers: 0, wronganswers: 0, totalattempts: 0 };
             const accuracy = stats.totalattempts > 0
-              $3 Math.round((stats.correctanswers / stats.totalattempts) * 100)
+              ? Math.round((stats.correctanswers / stats.totalattempts) * 100)
               : 0;
 
             res.json({
@@ -3725,7 +3725,7 @@ app.post("/progress/save", (req, res) => {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         sessionid, cleanUsername, questionindex, question, answer, validScore,
-        source || 'ai', chunkindex || null, pdfbased $12 1 : 0,
+        source || 'ai', chunkindex || null, pdfbased ? 1 : 0,
         difficulty || 'generic', topic || null
       ],
       (err) => {
@@ -3738,7 +3738,7 @@ app.post("/progress/save", (req, res) => {
         }
 
         // NEW: Update user stats after each attempt
-        updateUserStats(cleanUsername, validScore === 10 $13 1 : 0, validScore === 0 $14 1 : 0, topic);
+        updateUserStats(cleanUsername, validScore === 10 ? 1 : 0, validScore === 0 ? 1 : 0, topic);
 
         res.json({ success: true, message: 'Progress saved' });
       }
@@ -3770,14 +3770,14 @@ function updateUserStats(username, isCorrect, isWrong, topic) {
         }
 
         const newTotal = row.total_attempted + 1;
-        const newCorrect = row.correct + (iscorrect $2 1 : 0);
-        const newWrong = row.wrong + (isWrong $3 1 : 0);
+        const newCorrect = row.correct + (iscorrect ? 1 : 0);
+        const newWrong = row.wrong + (isWrong ? 1 : 0);
         const newAccuracy = (newCorrect / newTotal * 100).toFixed(2);
 
         // Update topic stats if provided
         let topics = {};
         try {
-          topics = row.topics_performance $4 JSON.parse(row.topics_performance) : {};
+          topics = row.topics_performance ? JSON.parse(row.topics_performance) : {};
         } catch (e) {
           console.error('❌ JSON parse error:', e.message);
           topics = {};
@@ -3787,7 +3787,7 @@ function updateUserStats(username, isCorrect, isWrong, topic) {
           if (!topics[topic]) {
             topics[topic] = { correct: 0, total: 0 };
           }
-          topics[topic].correct += iscorrect $5 1 : 0;
+          topics[topic].correct += iscorrect ? 1 : 0;
           topics[topic].total += 1;
         }
 
@@ -3840,7 +3840,7 @@ app.post("/progress/session", (req, res) => {
       }
       console.log(`✅ Session created: ${sessionid}`);
       console.log(`   Mode: ${mode}`);
-      console.log(`   PDF: ${fileid $5 `✅ Linked to ${fileid}` : '❌ No PDF'}`);
+      console.log(`   PDF: ${fileid ? `✅ Linked to ${fileid}` : '❌ No PDF'}`);
       res.json({ success: true, sessionid, starttime, fileid });
     }
   );
@@ -3968,7 +3968,7 @@ app.get('/user/stats/:username', (req, res) => {
         // Parse topics JSON
         let topics = {};
         try {
-          topics = row.topics_performance $2 JSON.parse(row.topics_performance) : {};
+          topics = row.topics_performance ? JSON.parse(row.topics_performance) : {};
         } catch (e) {
           console.error('❌ JSON parse error:', e.message);
           topics = {};
@@ -4051,10 +4051,10 @@ app.get("/progress/stats/:sessionId", (req, res) => {
         return res.json({ success: false, stats: {} });
       }
 
-      const scores = rows $2 rows.map(r => r.score) : [];
+      const scores = rows ? rows.map(r => r.score) : [];
       const totalattempts = scores.length;
-      const averageScore = totalattempts > 0 $3 (scores.reduce((a, b) => a + b, 0) / totalattempts).toFixed(2) : 0;
-      const maxScore = totalattempts > 0 $4 Math.max(...scores) : 0;
+      const averageScore = totalattempts > 0 ? (scores.reduce((a, b) => a + b, 0) / totalattempts).toFixed(2) : 0;
+      const maxScore = totalattempts > 0 ? Math.max(...scores) : 0;
 
       res.json({
         success: true,
@@ -4062,7 +4062,7 @@ app.get("/progress/stats/:sessionId", (req, res) => {
           totalattempts,
           averageScore,
           maxScore,
-          lastAttempt: rows && rows[0] $5 rows[0].timestamp : null
+          lastAttempt: rows && rows[0] ? rows[0].timestamp : null
         }
       });
     }
@@ -4119,7 +4119,7 @@ app.post('/progress/session-summary', (req, res) => {
             if (!topicStats[row.topic]) {
               topicStats[row.topic] = { correct: 0, total: 0 };
             }
-            topicStats[row.topic].correct += row.score === 10 $3 1 : 0;
+            topicStats[row.topic].correct += row.score === 10 ? 1 : 0;
             topicStats[row.topic].total += 1;
           }
         });
