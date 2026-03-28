@@ -3187,6 +3187,39 @@ function addQuestionToSession(sessionId, question) {
   console.log(`✅ Tracked question (${sessionQuestionCache[sessionId].length}/15 in cache)`);
 }
 
+// Randomize MCQ option positions (so correct answer isn't always "A")
+function randomizeOptions(question) {
+  if (!question || !question.options) return question;
+
+  const options = question.options;
+  const correctOption = question.correctOption;
+
+  // Get option values and shuffle their order
+  const entries = Object.entries(options); // [['A', value], ['B', value], ...]
+  const shuffled = entries.sort(() => Math.random() - 0.5);
+
+  // Map old positions to new positions
+  const positionMap = {};
+  shuffled.forEach((entry, newIndex) => {
+    const oldKey = entry[0];
+    const newKey = String.fromCharCode(65 + newIndex); // A, B, C, D
+    positionMap[oldKey] = newKey;
+  });
+
+  // Create new options object with shuffled values
+  const newOptions = {};
+  const newOrder = ['A', 'B', 'C', 'D'];
+  shuffled.forEach((entry, index) => {
+    newOptions[newOrder[index]] = entry[1];
+  });
+
+  return {
+    ...question,
+    options: newOptions,
+    correctOption: positionMap[correctOption] // Update correct answer position
+  };
+}
+
 // Intelligent retry: Try once more if duplicate
 async function getUniqueQuestionFromDB(sessionId, diff) {
   let question = await getFromMCQDatabase(diff);
@@ -3250,7 +3283,7 @@ app.post("/mcq-question", async (req, res) => {
     if (mcqLogic.mode === 'revision') {
       // Return revision question with metadata
       console.log(`🔁 Returning revision question (attempt ${mcqLogic.reviewCount}/2)`);
-      return res.json({
+      const revisionQuestion = {
         question: mcqLogic.question,
         options: mcqLogic.options,
         correctOption: mcqLogic.correctOption,
@@ -3263,7 +3296,8 @@ app.post("/mcq-question", async (req, res) => {
         source: 'revision',
         pdfBased: false,
         choice_type: 'single'
-      });
+      };
+      return res.json(randomizeOptions(revisionQuestion));
     }
 
     // PRIORITY 1: Try MCQ Database (test.csv imported questions)
@@ -3331,14 +3365,14 @@ app.post("/mcq-question", async (req, res) => {
           }
           if (altQuestion) {
             addQuestionToSession(sessionId, altQuestion.question);
-            return res.json({ ...altQuestion, isRevision: false, reviewCount: 0 });
+            return res.json(randomizeOptions({ ...altQuestion, isRevision: false, reviewCount: 0 }));
           }
         } catch (e) {
           console.log(`⚠️ Retry generation failed, proceeding with original`);
         }
       }
       addQuestionToSession(sessionId, mcqQuestion.question);
-      return res.json({ ...mcqQuestion, isRevision: false, reviewCount: 0 });
+      return res.json(randomizeOptions({ ...mcqQuestion, isRevision: false, reviewCount: 0 }));
     } catch (generationError) {
       // Generation failed - gracefully fall back to fallback pool
       console.warn(`⚠️ MCQ generation failed (${generationError.message}), using fallback`);
