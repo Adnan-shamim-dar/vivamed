@@ -1562,12 +1562,14 @@ Return ONLY valid JSON (no markdown, no backticks!) in this exact format:
 async function getFromMCQDatabase(difficulty = 'medium') {
   return new Promise((resolve, reject) => {
     const query = `SELECT * FROM mcq_questions WHERE difficulty = ? ORDER BY RANDOM() LIMIT 1`;
+    console.log(`   📝 Query: ${query} with difficulty=${difficulty}`);
 
     db.get(query, [difficulty], (err, row) => {
       if (err) {
-        console.error('❌ MCQ database query failed:', err.message);
+        console.error('   ❌ Database error:', err.message);
         reject(err);
       } else if (row) {
+        console.log(`   ✅ Database returned row: ${row.question.substring(0, 50)}`);
         // Convert to expected format
         const { topic, subtopic } = learningService.extractTopicFromQuestion(row.question, {
           A: row.optionA,
@@ -1598,7 +1600,7 @@ async function getFromMCQDatabase(difficulty = 'medium') {
         };
         resolve(result);
       } else {
-        console.warn(`⚠️ No MCQ found in database for difficulty: ${difficulty}`);
+        console.log(`   ⚠️ No MCQ found in database for difficulty: ${difficulty}`);
         resolve(null);
       }
     });
@@ -3154,10 +3156,12 @@ app.post("/mcq-question", async (req, res) => {
     try {
       console.log('🗂️  Attempting to fetch from MCQ database...');
       const dbQuestion = await getFromMCQDatabase(diff);
+      console.log(`📊 Database result: ${dbQuestion ? 'Found' : 'None'}`);
       if (dbQuestion) {
         console.log(`✅ MCQ from database: "${dbQuestion.question.substring(0, 60)}..."`);
         return res.json({ ...dbQuestion, isRevision: false, reviewCount: 0 });
       }
+      console.log('⚠️  No database result, falling through to API/fallback');
     } catch (dbError) {
       console.warn(`⚠️ MCQ database error: ${dbError.message}`);
     }
