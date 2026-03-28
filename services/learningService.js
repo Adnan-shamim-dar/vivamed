@@ -137,7 +137,7 @@ async function updateTopicPerformance(db, sessionId, topic, subtopic, isCorrect)
     const current = await new Promise((resolve, reject) => {
       db.get(
         `SELECT total_attempts, correct_attempts FROM topic_performance
-         WHERE sessionId = ? AND topic = ? AND subtopic = ?`,
+         WHERE sessionid = ? AND topic = ? AND subtopic = ?`,
         [sessionId, topic, subtopic || 'General'],
         (err, row) => {
           if (err) reject(err);
@@ -153,9 +153,9 @@ async function updateTopicPerformance(db, sessionId, topic, subtopic, isCorrect)
     // Insert or update topic performance
     await new Promise((resolve, reject) => {
       db.run(
-        `INSERT INTO topic_performance (sessionId, topic, subtopic, total_attempts, correct_attempts, accuracy, last_attempted)
+        `INSERT INTO topic_performance (sessionid, topic, subtopic, total_attempts, correct_attempts, accuracy, last_attempted)
          VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(sessionId, topic, subtopic) DO UPDATE SET
+         ON CONFLICT(sessionid, topic, subtopic) DO UPDATE SET
            total_attempts = ?,
            correct_attempts = ?,
            accuracy = ?,
@@ -188,7 +188,7 @@ async function getWeakTopics(db, sessionId) {
     return await new Promise((resolve, reject) => {
       db.all(
         `SELECT topic, subtopic, accuracy, total_attempts FROM topic_performance
-         WHERE sessionId = ? AND accuracy < 70
+         WHERE sessionid = ? AND accuracy < 70
          ORDER BY accuracy ASC`,
         [sessionId],
         (err, rows) => {

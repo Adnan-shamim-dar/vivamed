@@ -1,8 +1,7 @@
 require('dotenv').config()
 console.log('🔥 SERVER.JS LOADED - VERSION 3')
 const express = require("express")
-const { initDb, saveDb, DbWrapper } = require('./db-wrapper')
-const sqlite3 = require('sqlite3').verbose()
+const db = require('./database/postgres')
 const multer = require('multer')
 const pdfParse = require('pdf-parse')
 const fs = require('fs').promises
@@ -158,35 +157,16 @@ async function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-let db = null;
-let libraryDb = null; // Will use native sqlite3 instead of sql.js
+// Both main and library data live in the same PostgreSQL database.
+// `libraryDb` is aliased to `db` for backward compatibility with all
+// existing code that references libraryDb.* directly.
+const libraryDb = db;
 
-// Initialize both databases
+// Initialize the PostgreSQL database (creates all tables)
 async function setupDatabase() {
   try {
-    // Initialize main database with sql.js
-    await initDb('progress');
-    db = new DbWrapper('progress');
-    console.log('✅ Main database connected');
-
-    // Create all tables for main database
-    createMainDatabaseTables();
-
-    // Initialize library database with NATIVE SQLITE3 (not sql.js)
-    const libraryPath = path.join(__dirname, 'data', 'library.db');
-    libraryDb = new sqlite3.Database(libraryPath, (err) => {
-      if (err) {
-        console.error('❌ Library database error:', err.message);
-      } else {
-        console.log('✅ Library database connected (native sqlite3)');
-        // Enable WAL mode for better concurrency
-        libraryDb.run('PRAGMA journal_mode = WAL');
-      }
-    });
-
-    // Create all tables for library database (using native sqlite3)
-    createLibraryDatabaseTables();
-
+    await db.init();
+    console.log('✅ PostgreSQL database ready');
     return true;
   } catch (err) {
     console.error('❌ Database error:', err);
@@ -194,278 +174,14 @@ async function setupDatabase() {
   }
 }
 
-// Create main database tables
+// Table creation is handled by db.init() in database/postgres.js.
+// These stubs are kept so any future callers don't break.
 function createMainDatabaseTables() {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sessionId TEXT UNIQUE,
-      mode TEXT,
-      startTime TEXT,
-      createdAt TEXT DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS attempts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sessionId TEXT,
-      questionIndex INTEGER,
-      question TEXT,
-      answer TEXT,
-      score INTEGER,
-      source TEXT,
-      timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(sessionId) REFERENCES sessions(sessionId)
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS uploaded_files (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      fileId TEXT UNIQUE,
-      originalFilename TEXT,
-      filePath TEXT,
-      fileSize INTEGER,
-      uploadTime TEXT DEFAULT CURRENT_TIMESTAMP,
-      extractedText TEXT,
-      totalChunks INTEGER,
-      status TEXT DEFAULT 'processing'
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS pdf_chunks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      fileId TEXT,
-      chunkIndex INTEGER,
-      chunkText TEXT,
-      keyConcepts TEXT,
-      chunkType TEXT,
-      wordCount INTEGER,
-      FOREIGN KEY(fileId) REFERENCES uploaded_files(fileId)
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS cached_questions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      fileId TEXT,
-      question TEXT,
-      difficulty TEXT,
-      difficultyEmoji TEXT,
-      chunkIndex INTEGER,
-      totalChunks INTEGER,
-      chunkType TEXT,
-      pdfFilename TEXT,
-      pdfBased INTEGER DEFAULT 1,
-      source TEXT DEFAULT 'pdf-ai',
-      generatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(fileId) REFERENCES uploaded_files(fileId)
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS mcq_performance (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sessionId TEXT NOT NULL,
-      question TEXT NOT NULL,
-      optionsJSON TEXT NOT NULL,
-      correctOption TEXT NOT NULL,
-      userAnswer TEXT NOT NULL,
-      isCorrect BOOLEAN NOT NULL,
-      timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-      reviewCount INTEGER DEFAULT 0,
-      lastReviewedAt TEXT,
-      difficulty TEXT DEFAULT 'medium',
-      markedForRemoval BOOLEAN DEFAULT 0,
-      FOREIGN KEY(sessionId) REFERENCES sessions(sessionId)
-    )
-  `);
-
-  db.run(`ALTER TABLE sessions ADD COLUMN fileId TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding fileId to sessions:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE sessions ADD COLUMN lastChunkIndex INTEGER DEFAULT 0`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding lastChunkIndex to sessions:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE sessions ADD COLUMN correctAnswers INTEGER DEFAULT 0`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding correctAnswers to sessions:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE sessions ADD COLUMN wrongAnswers INTEGER DEFAULT 0`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding wrongAnswers to sessions:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE sessions ADD COLUMN totalAttempts INTEGER DEFAULT 0`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding totalAttempts to sessions:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE attempts ADD COLUMN chunkIndex INTEGER`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding chunkIndex to attempts:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE attempts ADD COLUMN pdfBased INTEGER DEFAULT 0`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding pdfBased to attempts:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE attempts ADD COLUMN difficulty TEXT DEFAULT 'medium'`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding difficulty to attempts:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE uploaded_files ADD COLUMN subject TEXT DEFAULT 'General'`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding subject to uploaded_files:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE attempts ADD COLUMN selectedOption TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding selectedOption to attempts:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE attempts ADD COLUMN correctOption TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding correctOption to attempts:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE attempts ADD COLUMN isMCQ BOOLEAN DEFAULT 0`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding isMCQ to attempts:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE attempts ADD COLUMN questionType TEXT DEFAULT 'long-form'`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding questionType to attempts:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE uploaded_files ADD COLUMN uploadMode TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding uploadMode to uploaded_files:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE uploaded_files ADD COLUMN questionType TEXT DEFAULT 'long-form'`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding questionType to uploaded_files:', err.message);
-    }
-  });
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS user_stats (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      total_attempted INTEGER DEFAULT 0,
-      correct INTEGER DEFAULT 0,
-      wrong INTEGER DEFAULT 0,
-      accuracy_percent REAL DEFAULT 0,
-      topics_performance TEXT DEFAULT '{}',
-      last_session_id TEXT,
-      last_updated TEXT DEFAULT CURRENT_TIMESTAMP,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    )
-  `, (err) => {
-    if (err && !err.message.includes('already exists')) {
-      console.error('Error creating user_stats table:', err.message);
-    }
-  });
-
-  db.run(`ALTER TABLE sessions ADD COLUMN username TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      // Silently ignore if column already exists
-    }
-  });
-
-  db.run(`ALTER TABLE attempts ADD COLUMN username TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      // Silently ignore if column already exists
-    }
-  });
-
-  db.run(`ALTER TABLE attempts ADD COLUMN topic TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      // Silently ignore if column already exists
-    }
-  });
-
-  console.log('📊 Database tables ready (including PDF support and MCQ support)');
+  console.log('📊 Database tables ready (managed by PostgreSQL)');
 }
 
-// Create library database tables
 function createLibraryDatabaseTables() {
-  libraryDb.run(`
-    CREATE TABLE IF NOT EXISTS library_questions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      subject TEXT,
-      question TEXT UNIQUE,
-      perfect_answer TEXT,
-      difficulty TEXT,
-      tags TEXT,
-      source_type TEXT DEFAULT 'pdf-ai',
-      source_pdf TEXT,
-      created_date TEXT DEFAULT CURRENT_TIMESTAMP,
-      usage_count INTEGER DEFAULT 0,
-      rating REAL DEFAULT 0.0
-    )
-  `);
-
-  libraryDb.run(`ALTER TABLE library_questions ADD COLUMN questionType TEXT DEFAULT 'long-form'`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding questionType to library_questions:', err.message);
-    }
-  });
-
-  libraryDb.run(`ALTER TABLE library_questions ADD COLUMN mcqOptions TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding mcqOptions to library_questions:', err.message);
-    }
-  });
-
-  libraryDb.run(`ALTER TABLE library_questions ADD COLUMN correctOption TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column')) {
-      console.error('Error adding correctOption to library_questions:', err.message);
-    }
-  });
-
-  libraryDb.run(`
-    CREATE TABLE IF NOT EXISTS library_metadata (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      store_date TEXT DEFAULT CURRENT_TIMESTAMP,
-      total_questions INTEGER DEFAULT 0,
-      total_subjects TEXT,
-      last_updated TEXT,
-      ai_availability_status TEXT DEFAULT 'available'
-    )
-  `);
-
-  libraryDb.run(`
-    INSERT OR IGNORE INTO library_metadata (id, total_questions, last_updated)
-    VALUES (1, 0, CURRENT_TIMESTAMP)
-  `);
-
-  console.log('📚 Library database tables ready');
+  console.log('📚 Library database tables ready (managed by PostgreSQL)');
 }
 
 
@@ -812,9 +528,10 @@ async function saveQuestionToLibrary(question, perfectAnswer, subject, difficult
     // Insert into library_questions (ignore duplicates via UNIQUE constraint)
     return new Promise((resolve, reject) => {
       libraryDb.run(
-        `INSERT OR IGNORE INTO library_questions
-         (subject, question, perfect_answer, difficulty, tags, source_type, source_pdf, questionType, mcqOptions, correctOption)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO library_questions
+         (subject, question, perfect_answer, difficulty, tags, source_type, source_pdf, questiontype, mcqoptions, correctoption)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (question) DO NOTHING`,
         [subject, question, perfectAnswer, difficulty, JSON.stringify(tags), sourceType, sourcePdf, questionType, mcqOptionsJson, correctOption],
         (err) => {
           if (err) {
@@ -827,7 +544,7 @@ async function saveQuestionToLibrary(question, perfectAnswer, subject, difficult
             libraryDb.run(
               `UPDATE library_metadata SET
                total_questions = (SELECT COUNT(*) FROM library_questions),
-               last_updated = CURRENT_TIMESTAMP
+               last_updated = NOW()
                WHERE id = 1`
             );
 
@@ -865,13 +582,13 @@ async function generateGenericAIQuestion() {
 async function getNextChunk(sessionId, fileId) {
   return new Promise((resolve, reject) => {
     // Get session's last used chunk index
-    db.get('SELECT lastChunkIndex FROM sessions WHERE sessionId = ?', [sessionId], (err, session) => {
+    db.get('SELECT lastchunkindex FROM sessions WHERE sessionid = ?', [sessionId], (err, session) => {
       if (err) return reject(err);
 
       const lastIndex = session?.lastChunkIndex || 0;
 
       // Get total chunks for this PDF
-      db.get('SELECT COUNT(*) as count FROM pdf_chunks WHERE fileId = ?', [fileId], (err, result) => {
+      db.get('SELECT COUNT(*) as count FROM pdf_chunks WHERE fileid = ?', [fileId], (err, result) => {
         if (err) return reject(err);
 
         const totalChunks = result.count;
@@ -886,7 +603,7 @@ async function getNextChunk(sessionId, fileId) {
 
         // Fetch chunk
         db.get(
-          'SELECT * FROM pdf_chunks WHERE fileId = ? AND chunkIndex = ?',
+          'SELECT * FROM pdf_chunks WHERE fileid = ? AND chunkindex = ?',
           [fileId, nextIndex],
           (err, chunk) => {
             if (err) return reject(err);
@@ -894,7 +611,7 @@ async function getNextChunk(sessionId, fileId) {
 
             // Update session's lastChunkIndex
             db.run(
-              'UPDATE sessions SET lastChunkIndex = ? WHERE sessionId = ?',
+              'UPDATE sessions SET lastchunkindex = ? WHERE sessionid = ?',
               [nextIndex, sessionId],
               (err) => {
                 if (err) console.warn('Could not update lastChunkIndex:', err);
@@ -944,7 +661,7 @@ Return ONLY the question as a single sentence.`;
     // Get total chunks and PDF filename for metadata
     const metadata = await new Promise((resolve, reject) => {
       db.get(
-        'SELECT totalChunks, originalFilename FROM uploaded_files WHERE fileId = ?',
+        'SELECT totalchunks, originalfilename FROM uploaded_files WHERE fileid = ?',
         [fileId],
         (err, row) => {
           if (err) reject(err);
@@ -979,7 +696,7 @@ async function determinationGenerationPath(mode, fileId) {
     let uploadMode = null;
     if (fileId) {
       uploadMode = await new Promise((resolve, reject) => {
-        db.get('SELECT uploadMode FROM uploaded_files WHERE fileId = ?', [fileId], (err, row) => {
+        db.get('SELECT uploadmode FROM uploaded_files WHERE fileid = ?', [fileId], (err, row) => {
           if (err) reject(err);
           else resolve(row?.uploadMode || null);
         });
@@ -1699,7 +1416,7 @@ Return ONLY valid JSON (no markdown!) in this exact format:
       // Get PDF metadata
       const metadata = await new Promise((resolve, reject) => {
         db.get(
-          'SELECT totalChunks, originalFilename FROM uploaded_files WHERE fileId = ?',
+          'SELECT totalchunks, originalfilename FROM uploaded_files WHERE fileid = ?',
           [fileId],
           (err, row) => {
             if (err) reject(err);
@@ -1816,7 +1533,7 @@ async function generateMultiplePDFQuestions(sessionId, fileId, numberOfQuestions
     // Get PDF metadata
     const pdfMetadata = await new Promise((resolve, reject) => {
       db.get(
-        'SELECT totalChunks, originalFilename FROM uploaded_files WHERE fileId = ?',
+        'SELECT totalchunks, originalfilename FROM uploaded_files WHERE fileid = ?',
         [fileId],
         (err, row) => {
           if (err) reject(err);
@@ -1908,7 +1625,7 @@ Return ONLY the question as a single sentence.`;
       // Get the chunk text for contextual answer generation
       const chunk = await new Promise((resolve, reject) => {
         db.get(
-          'SELECT chunkText FROM pdf_chunks WHERE fileId = ? AND chunkIndex = ?',
+          'SELECT chunktext FROM pdf_chunks WHERE fileid = ? AND chunkindex = ?',
           [fileId, q.chunkIndex],
           (err, row) => {
             if (err) reject(err);
@@ -1946,7 +1663,7 @@ async function insertCachedQuestion(fileId, questionObj) {
   return new Promise((resolve, reject) => {
     db.run(
       `INSERT INTO cached_questions
-       (fileId, question, difficulty, difficultyEmoji, chunkIndex, totalChunks, chunkType, pdfFilename, pdfBased, source)
+       (fileid, question, difficulty, difficultyemoji, chunkindex, totalchunks, chunktype, pdffilename, pdfbased, source)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         fileId,
@@ -1972,7 +1689,7 @@ async function insertCachedQuestion(fileId, questionObj) {
 async function updateUploadedFileStatus(fileId, status) {
   return new Promise((resolve, reject) => {
     db.run(
-      `UPDATE uploaded_files SET status = ? WHERE fileId = ?`,
+      `UPDATE uploaded_files SET status = ? WHERE fileid = ?`,
       [status, fileId],
       (err) => {
         if (err) reject(err);
@@ -2043,7 +1760,7 @@ async function generateAIQuestion(sessionId = null) {
   if (sessionId) {
     try {
       const session = await new Promise((resolve, reject) => {
-        db.get('SELECT fileId FROM sessions WHERE sessionId = ?', [sessionId], (err, row) => {
+        db.get('SELECT fileid FROM sessions WHERE sessionid = ?', [sessionId], (err, row) => {
           if (err) reject(err);
           else resolve(row);
         });
@@ -2200,7 +1917,7 @@ async function processPDF(filePath, originalFilename) {
     // Store in database
     await new Promise((resolve, reject) => {
       db.run(
-        `INSERT INTO uploaded_files (fileId, originalFilename, filePath, fileSize, extractedText, totalChunks, status)
+        `INSERT INTO uploaded_files (fileid, originalfilename, filepath, filesize, extractedtext, totalchunks, status)
          VALUES (?, ?, ?, ?, ?, ?, 'ready')`,
         [fileId, originalFilename, filePath, dataBuffer.length, fullText, chunks.length],
         (err) => {
@@ -2214,7 +1931,7 @@ async function processPDF(filePath, originalFilename) {
     for (let i = 0; i < chunks.length; i++) {
       await new Promise((resolve, reject) => {
         db.run(
-          `INSERT INTO pdf_chunks (fileId, chunkIndex, chunkText, chunkType, wordCount)
+          `INSERT INTO pdf_chunks (fileid, chunkindex, chunktext, chunktype, wordcount)
            VALUES (?, ?, ?, ?, ?)`,
           [fileId, i, chunks[i].text, chunks[i].type, chunks[i].wordCount],
           (err) => {
@@ -2236,7 +1953,7 @@ async function processPDF(filePath, originalFilename) {
     console.error('❌ PDF processing error:', error.message);
 
     // Update status to failed if record exists
-    db.run(`UPDATE uploaded_files SET status = 'failed' WHERE fileId = ?`, [fileId]);
+    db.run(`UPDATE uploaded_files SET status = 'failed' WHERE fileid = ?`, [fileId]);
 
     return {
       success: false,
@@ -2253,8 +1970,8 @@ async function processPDF(filePath, originalFilename) {
 async function loadSessionPerformance(sessionId) {
   return new Promise((resolve, reject) => {
     db.all(
-      `SELECT id, question, optionsJSON, correctOption, userAnswer, isCorrect, reviewCount, difficulty
-       FROM mcq_performance WHERE sessionId = ? ORDER BY timestamp DESC`,
+      `SELECT id, question, optionsjson, correctoption, useranswer, iscorrect, reviewcount, difficulty
+       FROM mcq_performance WHERE sessionid = ? ORDER BY timestamp DESC`,
       [sessionId],
       (err, rows) => {
         if (err) {
@@ -2350,7 +2067,7 @@ app.post('/pdf/upload', upload.single('pdfFile'), async (req, res) => {
 
       // Store uploadMode in database
       db.run(
-        'UPDATE uploaded_files SET uploadMode = ?, questionType = ? WHERE fileId = ?',
+        'UPDATE uploaded_files SET uploadmode = ?, questiontype = ? WHERE fileid = ?',
         [uploadMode, uploadMode === 'mcq' ? 'mcq' : 'long-form', fileId],
         (err) => {
           if (err) {
@@ -2389,7 +2106,7 @@ app.post('/pdf/subject', (req, res) => {
   console.log(`📚 Setting subject for ${fileId}: ${subject}`);
 
   db.run(
-    'UPDATE uploaded_files SET subject = ? WHERE fileId = ?',
+    'UPDATE uploaded_files SET subject = ? WHERE fileid = ?',
     [subject, fileId],
     (err) => {
       if (err) {
@@ -2406,7 +2123,7 @@ app.get('/pdf/status/:fileId', (req, res) => {
   const { fileId } = req.params;
 
   db.get(
-    'SELECT fileId, originalFilename, totalChunks, status, uploadTime FROM uploaded_files WHERE fileId = ?',
+    'SELECT fileid, originalfilename, totalchunks, status, uploadtime FROM uploaded_files WHERE fileid = ?',
     [fileId],
     (err, row) => {
       if (err) {
@@ -2427,7 +2144,7 @@ app.delete('/pdf/:fileId', async (req, res) => {
   try {
     // Get file path
     const file = await new Promise((resolve, reject) => {
-      db.get('SELECT filePath FROM uploaded_files WHERE fileId = ?', [fileId], (err, row) => {
+      db.get('SELECT filepath FROM uploaded_files WHERE fileid = ?', [fileId], (err, row) => {
         if (err) reject(err);
         else resolve(row);
       });
@@ -2439,14 +2156,14 @@ app.delete('/pdf/:fileId', async (req, res) => {
 
     // Delete from database
     await new Promise((resolve, reject) => {
-      db.run('DELETE FROM pdf_chunks WHERE fileId = ?', [fileId], (err) => {
+      db.run('DELETE FROM pdf_chunks WHERE fileid = ?', [fileId], (err) => {
         if (err) reject(err);
         else resolve();
       });
     });
 
     await new Promise((resolve, reject) => {
-      db.run('DELETE FROM uploaded_files WHERE fileId = ?', [fileId], (err) => {
+      db.run('DELETE FROM uploaded_files WHERE fileid = ?', [fileId], (err) => {
         if (err) reject(err);
         else resolve();
       });
@@ -2470,7 +2187,7 @@ app.get('/pdf/info/:fileId', (req, res) => {
   const { fileId } = req.params;
 
   db.get(
-    'SELECT * FROM uploaded_files WHERE fileId = ?',
+    'SELECT * FROM uploaded_files WHERE fileid = ?',
     [fileId],
     (err, file) => {
       if (err) {
@@ -2482,7 +2199,7 @@ app.get('/pdf/info/:fileId', (req, res) => {
 
       // Get chunks summary
       db.all(
-        'SELECT chunkIndex, chunkType, wordCount FROM pdf_chunks WHERE fileId = ? ORDER BY chunkIndex',
+        'SELECT chunkindex, chunktype, wordcount FROM pdf_chunks WHERE fileid = ? ORDER BY chunkindex',
         [fileId],
         (err, chunks) => {
           if (err) {
@@ -2511,7 +2228,7 @@ app.get('/pdf/generation-progress/:fileId', (req, res) => {
   const { fileId } = req.params;
 
   // Get file status and count of cached questions
-  db.get('SELECT totalChunks, status FROM uploaded_files WHERE fileId = ?', [fileId], (err, file) => {
+  db.get('SELECT totalchunks, status FROM uploaded_files WHERE fileid = ?', [fileId], (err, file) => {
     if (err) {
       return res.status(500).json({ success: false, error: err.message });
     }
@@ -2520,7 +2237,7 @@ app.get('/pdf/generation-progress/:fileId', (req, res) => {
     }
 
     // Count cached questions
-    db.get('SELECT COUNT(*) as generated FROM cached_questions WHERE fileId = ?', [fileId], (err, row) => {
+    db.get('SELECT COUNT(*) as generated FROM cached_questions WHERE fileid = ?', [fileId], (err, row) => {
       if (err) {
         return res.status(500).json({ success: false, error: err.message });
       }
@@ -2549,7 +2266,7 @@ app.get('/pdf/cached-questions/:fileId', (req, res) => {
   const offset = parseInt(req.query.offset) || 0;
 
   // Get total count and paginated questions
-  db.get('SELECT COUNT(*) as total FROM cached_questions WHERE fileId = ?', [fileId], (err, countRow) => {
+  db.get('SELECT COUNT(*) as total FROM cached_questions WHERE fileid = ?', [fileId], (err, countRow) => {
     if (err) {
       return res.status(500).json({ success: false, error: err.message });
     }
@@ -2557,8 +2274,8 @@ app.get('/pdf/cached-questions/:fileId', (req, res) => {
     const total = countRow?.total || 0;
 
     db.all(
-      `SELECT question, difficulty, difficultyEmoji, chunkIndex, totalChunks, chunkType, pdfFilename, pdfBased, source
-       FROM cached_questions WHERE fileId = ? ORDER BY generatedAt ASC LIMIT ? OFFSET ?`,
+      `SELECT question, difficulty, difficultyemoji, chunkindex, totalchunks, chunktype, pdffilename, pdfbased, source
+       FROM cached_questions WHERE fileid = ? ORDER BY generatedat ASC LIMIT ? OFFSET ?`,
       [fileId, limit, offset],
       (err, questions) => {
         if (err) {
@@ -2589,7 +2306,7 @@ app.post('/pdf/cached-questions', (req, res) => {
   console.log(`📦 Fetching cached questions for ${fileId}...`);
 
   // Get total count and paginated questions
-  db.get('SELECT COUNT(*) as total FROM cached_questions WHERE fileId = ?', [fileId], (err, countRow) => {
+  db.get('SELECT COUNT(*) as total FROM cached_questions WHERE fileid = ?', [fileId], (err, countRow) => {
     if (err) {
       return res.status(500).json({ success: false, error: err.message });
     }
@@ -2610,8 +2327,8 @@ app.post('/pdf/cached-questions', (req, res) => {
     }
 
     db.all(
-      `SELECT question, difficulty, difficultyEmoji, chunkIndex, totalChunks, chunkType, pdfFilename, pdfBased, source
-       FROM cached_questions WHERE fileId = ? ORDER BY generatedAt ASC LIMIT ? OFFSET ?`,
+      `SELECT question, difficulty, difficultyemoji, chunkindex, totalchunks, chunktype, pdffilename, pdfbased, source
+       FROM cached_questions WHERE fileid = ? ORDER BY generatedat ASC LIMIT ? OFFSET ?`,
       [fileId, limit, offset],
       (err, questions) => {
         if (err) {
@@ -3023,7 +2740,7 @@ async function getQuestionFromLibrary(difficulty = 'medium') {
     // This forces SQLite to randomize the entire table then grab ONE question
     // Much better than LIMIT 1000 + JavaScript random (which creates predictable subsets)
     libraryDb.get(
-      `SELECT question, perfect_answer as explanation, difficulty, subject
+      `SELECT question, perfect_answer AS explanation, difficulty, subject
        FROM library_questions
        WHERE difficulty = ?
        ORDER BY RANDOM()
@@ -3392,7 +3109,7 @@ app.post("/mcq-evaluate", async (req, res) => {
     // Save to database
     if (sessionId) {
       db.run(
-        `INSERT INTO attempts (sessionId, questionIndex, question, answer, score, selectedOption, correctOption, isMCQ, questionType, timestamp)
+        `INSERT INTO attempts (sessionid, questionindex, question, answer, score, selectedoption, correctoption, ismcq, questiontype, timestamp)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [sessionId, 0, 'MCQ', Array.isArray(selectedOption) ? selectedOption.join(',') : selectedOption, score, selectedOption.toString(), correctOption, 1, choice_type || 'single', new Date().toISOString()],
         (err) => {
@@ -3460,8 +3177,8 @@ app.post("/mcq/evaluate", async (req, res) => {
     // Save to mcq_performance table (learning history)
     db.run(
       `INSERT INTO mcq_performance (
-        sessionId, question, optionsJSON, correctOption, userAnswer,
-        isCorrect, difficulty, reviewCount, lastReviewedAt, topic, subtopic
+        sessionid, question, optionsjson, correctoption, useranswer,
+        iscorrect, difficulty, reviewcount, lastreviewedat, topic, subtopic
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         sessionId, question, optionsJSON, correctOption, userAnswer,
@@ -3477,9 +3194,9 @@ app.post("/mcq/evaluate", async (req, res) => {
         // Update session statistics
         db.run(
           `UPDATE sessions SET
-            totalAttempts = totalAttempts + 1,
-            ${isCorrect ? 'correctAnswers = correctAnswers + 1' : 'wrongAnswers = wrongAnswers + 1'}
-           WHERE sessionId = ?`,
+            totalattempts = totalattempts + 1,
+            ${isCorrect ? 'correctanswers = correctanswers + 1' : 'wronganswers = wronganswers + 1'}
+           WHERE sessionid = ?`,
           [sessionId],
           (err) => {
             if (err) {
@@ -3491,8 +3208,8 @@ app.post("/mcq/evaluate", async (req, res) => {
             // If revision AND correct AND reviewCount >= 2 → mark for removal
             if (isRevision && isCorrect && reviewCount >= 2) {
               db.run(
-                `UPDATE mcq_performance SET markedForRemoval = 1
-                 WHERE sessionId = ? AND question = ? AND correctOption = ?`,
+                `UPDATE mcq_performance SET markedforremoval = TRUE
+                 WHERE sessionid = ? AND question = ? AND correctoption = ?`,
                 [sessionId, question, correctOption],
                 (err) => {
                   if (!err) {
@@ -3504,8 +3221,8 @@ app.post("/mcq/evaluate", async (req, res) => {
 
             // Get updated stats for response
             db.get(
-              `SELECT correctAnswers, wrongAnswers, totalAttempts
-               FROM sessions WHERE sessionId = ?`,
+              `SELECT correctanswers, wronganswers, totalattempts
+               FROM sessions WHERE sessionid = ?`,
               [sessionId],
               (err, session) => {
                 res.json({
@@ -3533,8 +3250,8 @@ app.post("/mcq/session-stats", async (req, res) => {
 
     // Get performance history
     db.all(
-      `SELECT question, optionsJSON, correctOption, userAnswer, isCorrect, reviewCount
-       FROM mcq_performance WHERE sessionId = ? ORDER BY timestamp DESC LIMIT 100`,
+      `SELECT question, optionsjson, correctoption, useranswer, iscorrect, reviewcount
+       FROM mcq_performance WHERE sessionid = ? ORDER BY timestamp DESC LIMIT 100`,
       [sessionId],
       (err, attempts) => {
         if (err) {
@@ -3544,8 +3261,8 @@ app.post("/mcq/session-stats", async (req, res) => {
 
         // Get session stats
         db.get(
-          `SELECT correctAnswers, wrongAnswers, totalAttempts
-           FROM sessions WHERE sessionId = ?`,
+          `SELECT correctanswers, wronganswers, totalattempts
+           FROM sessions WHERE sessionid = ?`,
           [sessionId],
           (err, session) => {
             const performance = {
@@ -3596,8 +3313,8 @@ app.post("/mcq/session-end", async (req, res) => {
 
     // Count graduated questions (markedForRemoval = 1)
     db.get(
-      `SELECT COUNT(*) as graduatedCount FROM mcq_performance
-       WHERE sessionId = ? AND markedForRemoval = 1`,
+      `SELECT COUNT(*) as graduatedcount FROM mcq_performance
+       WHERE sessionid = ? AND markedforremoval = TRUE`,
       [sessionId],
       (err, result) => {
         const graduatedCount = result?.graduatedCount || 0;
@@ -3608,8 +3325,8 @@ app.post("/mcq/session-end", async (req, res) => {
 
         // Get final stats
         db.get(
-          `SELECT correctAnswers, wrongAnswers, totalAttempts
-           FROM sessions WHERE sessionId = ?`,
+          `SELECT correctanswers, wronganswers, totalattempts
+           FROM sessions WHERE sessionid = ?`,
           [sessionId],
           (err, session) => {
             res.json({
@@ -3721,8 +3438,8 @@ app.post("/progress/save", (req, res) => {
 
     db.run(
       `INSERT INTO attempts (
-        sessionId, username, questionIndex, question, answer, score,
-        source, chunkIndex, pdfBased, difficulty, topic
+        sessionid, username, questionindex, question, answer, score,
+        source, chunkindex, pdfbased, difficulty, topic
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         sessionId, cleanUsername, questionIndex, question, answer, validScore,
@@ -3832,7 +3549,7 @@ app.post("/progress/session", (req, res) => {
   console.log(`   fileId: ${fileId || 'NONE'}`);
 
   db.run(
-    `INSERT OR IGNORE INTO sessions (sessionId, mode, startTime, fileId) VALUES (?, ?, ?, ?)`,
+    `INSERT INTO sessions (sessionid, mode, starttime, fileid) VALUES (?, ?, ?, ?) ON CONFLICT (sessionid) DO NOTHING`,
     [sessionId, mode, startTime, fileId || null],
     (err) => {
       if (err) {
@@ -4028,7 +3745,7 @@ app.get("/progress/session/:sessionId", (req, res) => {
   const { sessionId } = req.params;
 
   db.all(
-    `SELECT * FROM attempts WHERE sessionId = ? ORDER BY timestamp DESC LIMIT 50`,
+    `SELECT * FROM attempts WHERE sessionid = ? ORDER BY timestamp DESC LIMIT 50`,
     [sessionId],
     (err, rows) => {
       if (err) {
@@ -4045,7 +3762,7 @@ app.get("/progress/stats/:sessionId", (req, res) => {
   const { sessionId } = req.params;
 
   db.all(
-    `SELECT score FROM attempts WHERE sessionId = ? AND score > 0`,
+    `SELECT score FROM attempts WHERE sessionid = ? AND score > 0`,
     [sessionId],
     (err, rows) => {
       if (err) {
@@ -4087,7 +3804,7 @@ app.post('/progress/session-summary', (req, res) => {
 
     // Get all attempts in this session
     db.all(
-      `SELECT score, topic FROM attempts WHERE sessionId = ? AND username = ? ORDER BY timestamp DESC`,
+      `SELECT score, topic FROM attempts WHERE sessionid = ? AND username = ? ORDER BY timestamp DESC`,
       [sessionId, cleanUsername],
       (err, rows) => {
         if (err) {
@@ -4223,7 +3940,7 @@ app.get('/library/questions', (req, res) => {
 
   // NEW: Filter by question type (mcq or long-form)
   if (questionType && questionType !== 'all') {
-    query += ' AND questionType = ?';
+    query += ' AND questiontype = ?';
     params.push(questionType);
   }
 
@@ -4281,7 +3998,7 @@ app.post('/question/fallback', (req, res) => {
 
   function fallbackToCache(req, res) {
     db.get(
-      'SELECT question, difficulty, pdfBased, chunkType FROM cached_questions ORDER BY RANDOM() LIMIT 1',
+      'SELECT question, difficulty, pdfbased, chunktype FROM cached_questions ORDER BY RANDOM() LIMIT 1',
       (err, cachedQuestion) => {
         if (err || !cachedQuestion) {
           return res.status(404).json({ success: false, error: 'No fallback questions available' });
