@@ -8,6 +8,10 @@ const pdfParse = require('pdf-parse')
 const fs = require('fs').promises
 const fsSync = require('fs')
 const path = require('path')
+
+// ===== IN-MEMORY SESSION CACHE FOR DEDUP =====
+// Tracks recent questions per session (faster than DB lookups)
+const sessionQuestionCache = {};
 const learningService = require('./services/learningService')
 const app = express()
 
@@ -2297,7 +2301,8 @@ async function selectNextMCQLogic(sessionId, fileId) {
   const performance = await loadSessionPerformance(sessionId);
 
   // 30% probability to show revision question if wrong questions exist
-  const shouldShowRevision = performance.wrongQuestions.length > 0 && Math.random() <= 0.3;
+  // TEMPORARILY REDUCED to 5% to prevent repeats while dedup is stabilizing
+  const shouldShowRevision = performance.wrongQuestions.length > 0 && Math.random() <= 0.05;
 
   if (shouldShowRevision) {
     // REVISION MODE: Pick random from wrongQuestions
@@ -3119,8 +3124,104 @@ app.post("/perfect-answer", async (req, res) => {
 });
 
 // ========================================
+// MCQ SESSION DEDUPLICATION (NEW)
+// ========================================
+
+// Hash question to extract fingerprint (first 5 keywords)
+function hashQuestion(questionText) {
+  try {
+    // Extract first 5 words as fingerprint
+    const words = questionText
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .split(/\s+/)
+      .slice(0, 5)
+      .join('|');
+    return words;
+  } catch (e) {
+    return questionText.substring(0, 50);
+  }
+}
+
+// Check if question was recently asked in this session
+function wasQuestionRecentlyAsked(sessionId, question) {
+  const hash = hashQuestion(question);
+  if (!sessionQuestionCache[sessionId]) {
+    console.log(`   📌 New session cache created for ${sessionId}`);
+    return false;
+  }
+  const isDupe = sessionQuestionCache[sessionId].includes(hash);
+  if (isDupe) {
+    console.log(`   🔄 DEDUP CATCH: Question hash in recent history!`);
+  }
+  return isDupe;
+}
+
+// Add question to session's recent question history
+function addQuestionToSession(sessionId, question) {
+  const hash = hashQuestion(question);
+
+  if (!sessionQuestionCache[sessionId]) {
+    sessionQuestionCache[sessionId] = [];
+  }
+
+  sessionQuestionCache[sessionId].push(hash);
+
+  // Keep only last 15 questions
+  if (sessionQuestionCache[sessionId].length > 15) {
+    sessionQuestionCache[sessionId] = sessionQuestionCache[sessionId].slice(-15);
+  }
+  console.log(`✅ Tracked question (${sessionQuestionCache[sessionId].length}/15 in cache)`);
+}
+
+// Intelligent retry: Try once more if duplicate
+async function getUniqueQuestionFromDB(sessionId, diff) {
+  let question = await getFromMCQDatabase(diff);
+  if (!question) return null;
+
+  // Check once if it's a duplicate
+  if (wasQuestionRecentlyAsked(sessionId, question.question)) {
+    console.log(`🔄 Duplicate detected, trying once more...`);
+    // Try ONE more time
+    const altQuestion = await getFromMCQDatabase(diff);
+    if (altQuestion && !wasQuestionRecentlyAsked(sessionId, altQuestion.question)) {
+      question = altQuestion;
+    }
+  }
+
+  return question;
+}
+
+// ========================================
 // MCQ MODE ENDPOINTS (NEW)
 // ========================================
+
+// Helper: Ensure question hasn't been recently asked
+async function returnMCQWithDedup(sessionId, question, retryFn) {
+  // Check if this question was recently asked
+  const wasRecent = wasQuestionRecentlyAsked(sessionId, question);
+
+  if (wasRecent) {
+    console.log(`🔁 Question was in history, generating alternative...`);
+    // Try to get a different question (one retry)
+    if (retryFn) {
+      try {
+        const altQuestion = await retryFn();
+        if (altQuestion && altQuestion !== question) {
+          question = altQuestion;
+          console.log(`✅ Got alternative question`);
+        }
+      } catch (e) {
+        console.log(`⚠️ Retry failed, proceeding with cached question`);
+      }
+    }
+  }
+
+  // Add this question to the session history
+  addQuestionToSession(sessionId, question);
+
+  return question;
+}
 
 // POST: Get MCQ question
 app.post("/mcq-question", async (req, res) => {
@@ -3155,10 +3256,11 @@ app.post("/mcq-question", async (req, res) => {
     // PRIORITY 1: Try MCQ Database (test.csv imported questions)
     try {
       console.log('🗂️  Attempting to fetch from MCQ database...');
-      const dbQuestion = await getFromMCQDatabase(diff);
+      const dbQuestion = await getUniqueQuestionFromDB(sessionId, diff);
       console.log(`📊 Database result: ${dbQuestion ? 'Found' : 'None'}`);
       if (dbQuestion) {
         console.log(`✅ MCQ from database: "${dbQuestion.question.substring(0, 60)}..."`);
+        addQuestionToSession(sessionId, dbQuestion.question);
         return res.json({ ...dbQuestion, isRevision: false, reviewCount: 0 });
       }
       console.log('⚠️  No database result, falling through to API/fallback');
@@ -3170,6 +3272,15 @@ app.post("/mcq-question", async (req, res) => {
     if (!OPENROUTER_API_KEY) {
       console.warn('⚠️ No API key - skipping AI generation, using fallback MCQ');
       const fallback = getFallbackMCQ(diff);
+      // CHECK DEDUP for fallback
+      const wasRecent = wasQuestionRecentlyAsked(sessionId, fallback.question);
+      if (wasRecent) {
+        console.log(`🔄 Fallback was recent, trying another...`);
+        const altFallback = getFallbackMCQ(diff);
+        addQuestionToSession(sessionId, altFallback.question);
+        return res.json({ ...altFallback, isRevision: false, reviewCount: 0 });
+      }
+      addQuestionToSession(sessionId, fallback.question);
       return res.json({ ...fallback, isRevision: false, reviewCount: 0 });
     }
 
@@ -3193,18 +3304,58 @@ app.post("/mcq-question", async (req, res) => {
       }
 
       console.log('✅ MCQ returned, source: ' + (mcqQuestion.source || 'ai'));
+      // CHECK DEDUP for AI-generated question
+      const wasRecent = wasQuestionRecentlyAsked(sessionId, mcqQuestion.question);
+      if (wasRecent) {
+        console.log(`🔄 AI question was recent, trying alternative...`);
+        // Retry generation for alternative
+        let altQuestion;
+        try {
+          if (fileId) {
+            altQuestion = await generatePDFBasedMCQQuestion(sessionId, fileId, diff);
+          } else {
+            altQuestion = await generateGenericAIMCQQuestion(diff);
+          }
+          if (altQuestion) {
+            addQuestionToSession(sessionId, altQuestion.question);
+            return res.json({ ...altQuestion, isRevision: false, reviewCount: 0 });
+          }
+        } catch (e) {
+          console.log(`⚠️ Retry generation failed, proceeding with original`);
+        }
+      }
+      addQuestionToSession(sessionId, mcqQuestion.question);
       return res.json({ ...mcqQuestion, isRevision: false, reviewCount: 0 });
     } catch (generationError) {
       // Generation failed - gracefully fall back to fallback pool
       console.warn(`⚠️ MCQ generation failed (${generationError.message}), using fallback`);
       const fallback = getFallbackMCQ(diff);
+      // CHECK DEDUP for error fallback
+      const wasRecent = wasQuestionRecentlyAsked(sessionId, fallback.question);
+      if (wasRecent) {
+        console.log(`🔄 Error fallback was recent, trying another...`);
+        const altFallback = getFallbackMCQ(diff);
+        addQuestionToSession(sessionId, altFallback.question);
+        return res.json({ ...altFallback, isRevision: false, reviewCount: 0 });
+      }
+      addQuestionToSession(sessionId, fallback.question);
       return res.json({ ...fallback, isRevision: false, reviewCount: 0 });
     }
   } catch (error) {
     console.error('❌ MCQ Endpoint Error:', error.message);
     // Even if something else goes wrong, try to return a fallback
     const diff = req.body?.difficulty || 'medium';
+    const sessionId = req.body?.sessionId || '';
     const fallback = getFallbackMCQ(diff);
+    // CHECK DEDUP for final fallback
+    const wasRecent = sessionId && wasQuestionRecentlyAsked(sessionId, fallback.question);
+    if (wasRecent) {
+      console.log(`🔄 Final fallback was recent, trying another...`);
+      const altFallback = getFallbackMCQ(diff);
+      if (sessionId) addQuestionToSession(sessionId, altFallback.question);
+      return res.json({ ...altFallback, isRevision: false, reviewCount: 0 });
+    }
+    if (sessionId) addQuestionToSession(sessionId, fallback.question);
     return res.json({ ...fallback, isRevision: false, reviewCount: 0 });
   }
 });

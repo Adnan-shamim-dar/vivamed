@@ -2344,9 +2344,23 @@ async function preloadMCQQuestions(count = 5, parallel = false) {
 
       const results = await Promise.all(fetchPromises);
       const validResults = results.filter(r => r !== null);
+
+      // DEDUP: Filter out duplicate questions from parallel results
+      const seenQuestions = new Set();
+      const uniqueResults = validResults.filter(q => {
+        // Hash the question (first 5 words)
+        const hash = q.question.split(/\s+/).slice(0, 5).join('|');
+        if (seenQuestions.has(hash)) {
+          console.log(`🔄 Duplicate detected in preload, filtering...`);
+          return false;
+        }
+        seenQuestions.add(hash);
+        return true;
+      });
+
       // ADD to cache instead of replacing it
-      appState.mcqPreloadCache.push(...validResults);
-      console.log(`⚡ Parallel preload complete: loaded ${validResults.length}/${count} questions`);
+      appState.mcqPreloadCache.push(...uniqueResults);
+      console.log(`⚡ Parallel preload complete: loaded ${uniqueResults.length}/${count} questions (deduped ${validResults.length - uniqueResults.length} duplicates)`);
     } else {
       // SEQUENTIAL fetch for refilling (to avoid overwhelming server) - INCREASED COUNT
       for (let i = 0; i < Math.max(count, 10); i++) {  // At least 10 per refill
@@ -3603,6 +3617,11 @@ function selectMCQDifficulty(difficulty) {
   buttons[difficulty].classList.add('border-2', 'border-blue-500');
 
   console.log(`✨ MCQ difficulty filter changed to: ${difficulty}`);
+
+  // CRITICAL: Clear preload cache so old difficulty questions don't persist
+  appState.mcqPreloadCache = [];
+  appState.mcqPreloadInProgress = false;
+  console.log('🗑️  Cleared preload cache to ensure only new difficulty questions are loaded');
 
   // Clear submitted state and load a fresh question with the new difficulty
   appState.mcqSubmitted = false;
