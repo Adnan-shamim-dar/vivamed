@@ -1,17 +1,27 @@
 /**
  * Database Schema Definitions
- * Extracted from original server.js - EXACT SAME STRUCTURE
- * All CREATE TABLE statements in one place
+ * Supports both SQLite (local development) and PostgreSQL (production/Railway)
  */
+
+/**
+ * Detect database type (SQLite vs PostgreSQL)
+ */
+function isPostgres(db) {
+  // PostgreSQL client (from pg pool) has query method
+  return typeof db.query === 'function' && !db.run;
+}
 
 /**
  * Initialize progress database tables
  */
 async function createProgressTables(db) {
+  const isPostgresDB = isPostgres(db);
+
+  // Define tables with variations for SQLite vs PostgreSQL
   const tables = [
     // Core sessions table
     `CREATE TABLE IF NOT EXISTS sessions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ${isPostgresDB ? 'id SERIAL PRIMARY KEY,' : 'id INTEGER PRIMARY KEY AUTOINCREMENT,'}
       sessionId TEXT UNIQUE,
       mode TEXT,
       startTime TEXT,
@@ -20,12 +30,14 @@ async function createProgressTables(db) {
       lastChunkIndex INTEGER DEFAULT 0,
       correctAnswers INTEGER DEFAULT 0,
       wrongAnswers INTEGER DEFAULT 0,
-      totalAttempts INTEGER DEFAULT 0
+      totalAttempts INTEGER DEFAULT 0,
+      username TEXT,
+      recentQuestions TEXT DEFAULT '[]'
     )`,
 
     // Question attempts table
     `CREATE TABLE IF NOT EXISTS attempts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ${isPostgresDB ? 'id SERIAL PRIMARY KEY,' : 'id INTEGER PRIMARY KEY AUTOINCREMENT,'}
       sessionId TEXT,
       questionIndex INTEGER,
       question TEXT,
@@ -40,12 +52,14 @@ async function createProgressTables(db) {
       correctOption TEXT,
       isMCQ INTEGER DEFAULT 0,
       questionType TEXT,
+      username TEXT,
+      topic TEXT,
       FOREIGN KEY(sessionId) REFERENCES sessions(sessionId)
     )`,
 
     // Uploaded PDF files metadata
     `CREATE TABLE IF NOT EXISTS uploaded_files (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ${isPostgresDB ? 'id SERIAL PRIMARY KEY,' : 'id INTEGER PRIMARY KEY AUTOINCREMENT,'}
       fileId TEXT UNIQUE,
       originalFilename TEXT,
       filePath TEXT,
@@ -61,7 +75,7 @@ async function createProgressTables(db) {
 
     // Intelligent PDF chunks
     `CREATE TABLE IF NOT EXISTS pdf_chunks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ${isPostgresDB ? 'id SERIAL PRIMARY KEY,' : 'id INTEGER PRIMARY KEY AUTOINCREMENT,'}
       fileId TEXT,
       chunkIndex INTEGER,
       chunkText TEXT,
@@ -73,7 +87,7 @@ async function createProgressTables(db) {
 
     // Cached pre-generated questions
     `CREATE TABLE IF NOT EXISTS cached_questions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ${isPostgresDB ? 'id SERIAL PRIMARY KEY,' : 'id INTEGER PRIMARY KEY AUTOINCREMENT,'}
       fileId TEXT,
       question TEXT,
       difficulty TEXT,
@@ -88,9 +102,9 @@ async function createProgressTables(db) {
       FOREIGN KEY(fileId) REFERENCES uploaded_files(fileId)
     )`,
 
-    // MCQ performance tracking (Duolingo-style learning engine)
+    // MCQ performance tracking
     `CREATE TABLE IF NOT EXISTS mcq_performance (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ${isPostgresDB ? 'id SERIAL PRIMARY KEY,' : 'id INTEGER PRIMARY KEY AUTOINCREMENT,'}
       sessionId TEXT NOT NULL,
       question TEXT NOT NULL,
       optionsJSON TEXT NOT NULL,
@@ -107,9 +121,9 @@ async function createProgressTables(db) {
       FOREIGN KEY(sessionId) REFERENCES sessions(sessionId)
     )`,
 
-    // Topic performance tracking (Adaptive learning system)
+    // Topic performance tracking
     `CREATE TABLE IF NOT EXISTS topic_performance (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ${isPostgresDB ? 'id SERIAL PRIMARY KEY,' : 'id INTEGER PRIMARY KEY AUTOINCREMENT,'}
       sessionId TEXT NOT NULL,
       topic TEXT NOT NULL,
       subtopic TEXT,
@@ -121,9 +135,9 @@ async function createProgressTables(db) {
       FOREIGN KEY(sessionId) REFERENCES sessions(sessionId)
     )`,
 
-    // NEW: User statistics - Aggregated cross-session tracking
+    // User statistics
     `CREATE TABLE IF NOT EXISTS user_stats (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ${isPostgresDB ? 'id SERIAL PRIMARY KEY,' : 'id INTEGER PRIMARY KEY AUTOINCREMENT,'}
       username TEXT UNIQUE NOT NULL,
       total_attempted INTEGER DEFAULT 0,
       correct INTEGER DEFAULT 0,
@@ -137,44 +151,32 @@ async function createProgressTables(db) {
   ];
 
   for (const sql of tables) {
-    await runAsync(db, sql);
+    await runAsync(db, sql, isPostgresDB);
   }
 
-  // Add ALTER TABLE columns (handle if they already exist)
-  const alterStatements = [
-    `ALTER TABLE sessions ADD COLUMN fileId TEXT`,
-    `ALTER TABLE sessions ADD COLUMN lastChunkIndex INTEGER DEFAULT 0`,
-    `ALTER TABLE sessions ADD COLUMN correctAnswers INTEGER DEFAULT 0`,
-    `ALTER TABLE sessions ADD COLUMN wrongAnswers INTEGER DEFAULT 0`,
-    `ALTER TABLE sessions ADD COLUMN totalAttempts INTEGER DEFAULT 0`,
-    `ALTER TABLE sessions ADD COLUMN username TEXT`,  // NEW
-    `ALTER TABLE sessions ADD COLUMN recentQuestions TEXT DEFAULT '[]'`,  // NEW: JSON array of last 10 questions asked
-    `ALTER TABLE attempts ADD COLUMN chunkIndex INTEGER`,
-    `ALTER TABLE attempts ADD COLUMN pdfBased INTEGER DEFAULT 0`,
-    `ALTER TABLE attempts ADD COLUMN difficulty TEXT`,
-    `ALTER TABLE attempts ADD COLUMN selectedOption TEXT`,
-    `ALTER TABLE attempts ADD COLUMN correctOption TEXT`,
-    `ALTER TABLE attempts ADD COLUMN isMCQ INTEGER DEFAULT 0`,
-    `ALTER TABLE attempts ADD COLUMN questionType TEXT`,
-    `ALTER TABLE attempts ADD COLUMN username TEXT`,  // NEW
-    `ALTER TABLE attempts ADD COLUMN topic TEXT`,  // NEW
-    `ALTER TABLE mcq_performance ADD COLUMN topic TEXT`,
-    `ALTER TABLE mcq_performance ADD COLUMN subtopic TEXT`
-  ];
-
-  for (const sql of alterStatements) {
-    await runAsync(db, sql, true); // true = suppress errors for duplicate columns
-  }
+  // Add MCQ questions table if needed
+  const mcqTableSql = `CREATE TABLE IF NOT EXISTS mcq_questions (
+    ${isPostgresDB ? 'id SERIAL PRIMARY KEY,' : 'id INTEGER PRIMARY KEY AUTOINCREMENT,'}
+    question TEXT NOT NULL UNIQUE,
+    options TEXT NOT NULL,
+    correctAnswer TEXT NOT NULL,
+    difficulty TEXT,
+    subject TEXT,
+    createdAt TEXT DEFAULT CURRENT_TIMESTAMP
+  )`;
+  await runAsync(db, mcqTableSql, isPostgresDB);
 }
 
 /**
  * Initialize library database tables
  */
 async function createLibraryTables(db) {
+  const isPostgresDB = isPostgres(db);
+
   const tables = [
     // Library questions storage
     `CREATE TABLE IF NOT EXISTS library_questions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ${isPostgresDB ? 'id SERIAL PRIMARY KEY,' : 'id INTEGER PRIMARY KEY AUTOINCREMENT,'}
       subject TEXT,
       question TEXT UNIQUE,
       perfect_answer TEXT,
@@ -192,7 +194,7 @@ async function createLibraryTables(db) {
 
     // Library metadata and statistics
     `CREATE TABLE IF NOT EXISTS library_metadata (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ${isPostgresDB ? 'id SERIAL PRIMARY KEY,' : 'id INTEGER PRIMARY KEY AUTOINCREMENT,'}
       store_date TEXT DEFAULT CURRENT_TIMESTAMP,
       total_questions INTEGER DEFAULT 0,
       total_subjects TEXT,
@@ -202,41 +204,54 @@ async function createLibraryTables(db) {
   ];
 
   for (const sql of tables) {
-    await runAsync(db, sql);
+    await runAsync(db, sql, isPostgresDB);
   }
 
   // Initialize metadata if empty
-  await runAsync(db, `
-    INSERT OR IGNORE INTO library_metadata (id, total_questions, last_updated)
-    VALUES (1, 0, CURRENT_TIMESTAMP)
-  `);
+  const initMetadata = isPostgresDB
+    ? `INSERT INTO library_metadata (id, total_questions, last_updated)
+       VALUES (1, 0, CURRENT_TIMESTAMP)
+       ON CONFLICT (id) DO NOTHING`
+    : `INSERT OR IGNORE INTO library_metadata (id, total_questions, last_updated)
+       VALUES (1, 0, CURRENT_TIMESTAMP)`;
 
-  // Add MCQ-specific columns (handle if they already exist)
-  const alterStatements = [
-    `ALTER TABLE library_questions ADD COLUMN questionType TEXT DEFAULT 'long-form'`,
-    `ALTER TABLE library_questions ADD COLUMN mcqOptions TEXT`,
-    `ALTER TABLE library_questions ADD COLUMN correctOption TEXT`
-  ];
-
-  for (const sql of alterStatements) {
-    await runAsync(db, sql, true); // true = suppress errors
-  }
+  await runAsync(db, initMetadata, isPostgresDB, true);
 }
 
 /**
- * Helper: Run async wrapper for db.run with error handling
+ * Helper: Run async wrapper with support for both SQLite and PostgreSQL
  */
-function runAsync(db, sql, suppressErrors = false) {
-  return new Promise((resolve) => {
-    db.run(sql, (err) => {
-      if (err) {
-        if (!suppressErrors && !err.message.includes('duplicate column') && !err.message.includes('already exists')) {
-          console.error('❌ Schema error:', err.message);
-        }
-      }
-      resolve();
-    });
-  });
+async function runAsync(db, sql, isPostgresDB = false, suppressErrors = false) {
+  try {
+    if (isPostgresDB) {
+      // PostgreSQL: use promise-based query
+      await db.query(sql);
+    } else {
+      // SQLite: use callback-based run
+      return new Promise((resolve) => {
+        db.run(sql, (err) => {
+          if (err) {
+            if (!suppressErrors &&
+                !err.message.includes('duplicate column') &&
+                !err.message.includes('already exists') &&
+                !err.message.includes('UNIQUE constraint failed') &&
+                !err.message.includes('duplicate key')) {
+              console.error('❌ Schema error:', err.message);
+            }
+          }
+          resolve();
+        });
+      });
+    }
+  } catch (error) {
+    if (!suppressErrors &&
+        !error.message.includes('duplicate column') &&
+        !error.message.includes('already exists') &&
+        !error.message.includes('UNIQUE constraint failed') &&
+        !error.message.includes('duplicate key')) {
+      console.error('❌ Schema error:', error.message);
+    }
+  }
 }
 
 module.exports = {
