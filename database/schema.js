@@ -1,129 +1,136 @@
 /**
- * Database Schema Definitions
- * Extracted from original server.js - EXACT SAME STRUCTURE
- * All CREATE TABLE statements in one place
+ * PostgreSQL Database Schema Definitions
+ * Converted from SQLite with:
+ * - Column names: lowercase
+ * - Placeholders: $1, $2, $3...
+ * - AUTOINCREMENT → SERIAL
+ * - INSERT OR IGNORE → INSERT...ON CONFLICT DO NOTHING
  */
 
 /**
  * Initialize progress database tables
  */
-async function createProgressTables(db) {
+async function createProgressTables(pool) {
   const tables = [
     // Core sessions table
     `CREATE TABLE IF NOT EXISTS sessions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sessionId TEXT UNIQUE,
+      id SERIAL PRIMARY KEY,
+      sessionid TEXT UNIQUE,
       mode TEXT,
-      startTime TEXT,
-      createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
-      fileId TEXT,
-      lastChunkIndex INTEGER DEFAULT 0,
-      correctAnswers INTEGER DEFAULT 0,
-      wrongAnswers INTEGER DEFAULT 0,
-      totalAttempts INTEGER DEFAULT 0
+      starttime TEXT,
+      createdat TEXT DEFAULT CURRENT_TIMESTAMP,
+      fileid TEXT,
+      lastchunkindex INTEGER DEFAULT 0,
+      correctanswers INTEGER DEFAULT 0,
+      wronganswers INTEGER DEFAULT 0,
+      totalattempts INTEGER DEFAULT 0,
+      username TEXT,
+      recentquestions TEXT DEFAULT '[]'
     )`,
 
     // Question attempts table
     `CREATE TABLE IF NOT EXISTS attempts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sessionId TEXT,
-      questionIndex INTEGER,
+      id SERIAL PRIMARY KEY,
+      sessionid TEXT,
+      questionindex INTEGER,
       question TEXT,
       answer TEXT,
       score INTEGER,
       source TEXT,
       timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-      chunkIndex INTEGER,
-      pdfBased INTEGER DEFAULT 0,
+      chunkindex INTEGER,
+      pdfbased INTEGER DEFAULT 0,
       difficulty TEXT,
-      selectedOption TEXT,
-      correctOption TEXT,
-      isMCQ INTEGER DEFAULT 0,
-      questionType TEXT,
-      FOREIGN KEY(sessionId) REFERENCES sessions(sessionId)
+      selectedoption TEXT,
+      correctoption TEXT,
+      ismcq INTEGER DEFAULT 0,
+      questiontype TEXT,
+      username TEXT,
+      topic TEXT,
+      FOREIGN KEY(sessionid) REFERENCES sessions(sessionid)
     )`,
 
     // Uploaded PDF files metadata
     `CREATE TABLE IF NOT EXISTS uploaded_files (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      fileId TEXT UNIQUE,
-      originalFilename TEXT,
-      filePath TEXT,
-      fileSize INTEGER,
-      uploadTime TEXT DEFAULT CURRENT_TIMESTAMP,
-      extractedText TEXT,
-      totalChunks INTEGER,
+      id SERIAL PRIMARY KEY,
+      fileid TEXT UNIQUE,
+      originalfilename TEXT,
+      filepath TEXT,
+      filesize INTEGER,
+      uploadtime TEXT DEFAULT CURRENT_TIMESTAMP,
+      extractedtext TEXT,
+      totalchunks INTEGER,
       status TEXT DEFAULT 'processing',
       subject TEXT,
-      uploadMode TEXT,
-      questionType TEXT
+      uploadmode TEXT,
+      questiontype TEXT
     )`,
 
     // Intelligent PDF chunks
     `CREATE TABLE IF NOT EXISTS pdf_chunks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      fileId TEXT,
-      chunkIndex INTEGER,
-      chunkText TEXT,
-      keyConcepts TEXT,
-      chunkType TEXT,
-      wordCount INTEGER,
-      FOREIGN KEY(fileId) REFERENCES uploaded_files(fileId)
+      id SERIAL PRIMARY KEY,
+      fileid TEXT,
+      chunkindex INTEGER,
+      chunktext TEXT,
+      keyconcepts TEXT,
+      chunktype TEXT,
+      wordcount INTEGER,
+      FOREIGN KEY(fileid) REFERENCES uploaded_files(fileid)
     )`,
 
     // Cached pre-generated questions
     `CREATE TABLE IF NOT EXISTS cached_questions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      fileId TEXT,
+      id SERIAL PRIMARY KEY,
+      fileid TEXT,
       question TEXT,
       difficulty TEXT,
-      difficultyEmoji TEXT,
-      chunkIndex INTEGER,
-      totalChunks INTEGER,
-      chunkType TEXT,
-      pdfFilename TEXT,
-      pdfBased INTEGER DEFAULT 1,
+      difficultyemoji TEXT,
+      chunkindex INTEGER,
+      totalchunks INTEGER,
+      chunktype TEXT,
+      pdffilename TEXT,
+      pdfbased INTEGER DEFAULT 1,
       source TEXT DEFAULT 'pdf-ai',
-      generatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(fileId) REFERENCES uploaded_files(fileId)
+      generatedat TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(fileid) REFERENCES uploaded_files(fileid)
     )`,
 
     // MCQ performance tracking (Duolingo-style learning engine)
     `CREATE TABLE IF NOT EXISTS mcq_performance (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sessionId TEXT NOT NULL,
+      id SERIAL PRIMARY KEY,
+      sessionid TEXT NOT NULL,
       question TEXT NOT NULL,
-      optionsJSON TEXT NOT NULL,
-      correctOption TEXT NOT NULL,
-      userAnswer TEXT NOT NULL,
-      isCorrect BOOLEAN NOT NULL,
+      optionsjson TEXT NOT NULL,
+      correctoption TEXT NOT NULL,
+      useranswer TEXT NOT NULL,
+      iscorrect BOOLEAN NOT NULL,
       timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-      reviewCount INTEGER DEFAULT 0,
-      lastReviewedAt TEXT,
+      reviewcount INTEGER DEFAULT 0,
+      lastreviewedat TEXT,
       difficulty TEXT DEFAULT 'medium',
-      markedForRemoval BOOLEAN DEFAULT 0,
+      markedforremoval BOOLEAN DEFAULT 0,
       topic TEXT,
       subtopic TEXT,
-      FOREIGN KEY(sessionId) REFERENCES sessions(sessionId)
+      FOREIGN KEY(sessionid) REFERENCES sessions(sessionid)
     )`,
 
     // Topic performance tracking (Adaptive learning system)
     `CREATE TABLE IF NOT EXISTS topic_performance (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sessionId TEXT NOT NULL,
+      id SERIAL PRIMARY KEY,
+      sessionid TEXT NOT NULL,
       topic TEXT NOT NULL,
       subtopic TEXT,
       total_attempts INTEGER DEFAULT 0,
       correct_attempts INTEGER DEFAULT 0,
       accuracy REAL DEFAULT 0,
       last_attempted TEXT,
-      UNIQUE(sessionId, topic, subtopic),
-      FOREIGN KEY(sessionId) REFERENCES sessions(sessionId)
+      UNIQUE(sessionid, topic, subtopic),
+      FOREIGN KEY(sessionid) REFERENCES sessions(sessionid)
     )`,
 
-    // NEW: User statistics - Aggregated cross-session tracking
+    // User statistics - Aggregated cross-session tracking
     `CREATE TABLE IF NOT EXISTS user_stats (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
       total_attempted INTEGER DEFAULT 0,
       correct INTEGER DEFAULT 0,
@@ -133,48 +140,39 @@ async function createProgressTables(db) {
       last_session_id TEXT,
       last_updated TEXT DEFAULT CURRENT_TIMESTAMP,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+    // MCQ questions from dataset
+    `CREATE TABLE IF NOT EXISTS mcq_questions (
+      id SERIAL PRIMARY KEY,
+      question TEXT UNIQUE,
+      options TEXT NOT NULL,
+      correctoptions TEXT NOT NULL,
+      difficulty TEXT DEFAULT 'medium',
+      subject TEXT DEFAULT 'General',
+      createdat TEXT DEFAULT CURRENT_TIMESTAMP
     )`
   ];
 
   for (const sql of tables) {
-    await runAsync(db, sql);
-  }
-
-  // Add ALTER TABLE columns (handle if they already exist)
-  const alterStatements = [
-    `ALTER TABLE sessions ADD COLUMN fileId TEXT`,
-    `ALTER TABLE sessions ADD COLUMN lastChunkIndex INTEGER DEFAULT 0`,
-    `ALTER TABLE sessions ADD COLUMN correctAnswers INTEGER DEFAULT 0`,
-    `ALTER TABLE sessions ADD COLUMN wrongAnswers INTEGER DEFAULT 0`,
-    `ALTER TABLE sessions ADD COLUMN totalAttempts INTEGER DEFAULT 0`,
-    `ALTER TABLE sessions ADD COLUMN username TEXT`,  // NEW
-    `ALTER TABLE sessions ADD COLUMN recentQuestions TEXT DEFAULT '[]'`,  // NEW: JSON array of last 10 questions asked
-    `ALTER TABLE attempts ADD COLUMN chunkIndex INTEGER`,
-    `ALTER TABLE attempts ADD COLUMN pdfBased INTEGER DEFAULT 0`,
-    `ALTER TABLE attempts ADD COLUMN difficulty TEXT`,
-    `ALTER TABLE attempts ADD COLUMN selectedOption TEXT`,
-    `ALTER TABLE attempts ADD COLUMN correctOption TEXT`,
-    `ALTER TABLE attempts ADD COLUMN isMCQ INTEGER DEFAULT 0`,
-    `ALTER TABLE attempts ADD COLUMN questionType TEXT`,
-    `ALTER TABLE attempts ADD COLUMN username TEXT`,  // NEW
-    `ALTER TABLE attempts ADD COLUMN topic TEXT`,  // NEW
-    `ALTER TABLE mcq_performance ADD COLUMN topic TEXT`,
-    `ALTER TABLE mcq_performance ADD COLUMN subtopic TEXT`
-  ];
-
-  for (const sql of alterStatements) {
-    await runAsync(db, sql, true); // true = suppress errors for duplicate columns
+    try {
+      await pool.query(sql);
+    } catch (error) {
+      if (!error.message.includes('already exists')) {
+        console.error('❌ Schema error:', error.message);
+      }
+    }
   }
 }
 
 /**
  * Initialize library database tables
  */
-async function createLibraryTables(db) {
+async function createLibraryTables(pool) {
   const tables = [
     // Library questions storage
     `CREATE TABLE IF NOT EXISTS library_questions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       subject TEXT,
       question TEXT UNIQUE,
       perfect_answer TEXT,
@@ -185,14 +183,14 @@ async function createLibraryTables(db) {
       created_date TEXT DEFAULT CURRENT_TIMESTAMP,
       usage_count INTEGER DEFAULT 0,
       rating REAL DEFAULT 0.0,
-      questionType TEXT DEFAULT 'long-form',
-      mcqOptions TEXT,
-      correctOption TEXT
+      questiontype TEXT DEFAULT 'long-form',
+      mcqoptions TEXT,
+      correctoption TEXT
     )`,
 
     // Library metadata and statistics
     `CREATE TABLE IF NOT EXISTS library_metadata (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       store_date TEXT DEFAULT CURRENT_TIMESTAMP,
       total_questions INTEGER DEFAULT 0,
       total_subjects TEXT,
@@ -202,41 +200,28 @@ async function createLibraryTables(db) {
   ];
 
   for (const sql of tables) {
-    await runAsync(db, sql);
+    try {
+      await pool.query(sql);
+    } catch (error) {
+      if (!error.message.includes('already exists')) {
+        console.error('❌ Schema error:', error.message);
+      }
+    }
   }
 
   // Initialize metadata if empty
-  await runAsync(db, `
-    INSERT OR IGNORE INTO library_metadata (id, total_questions, last_updated)
-    VALUES (1, 0, CURRENT_TIMESTAMP)
-  `);
-
-  // Add MCQ-specific columns (handle if they already exist)
-  const alterStatements = [
-    `ALTER TABLE library_questions ADD COLUMN questionType TEXT DEFAULT 'long-form'`,
-    `ALTER TABLE library_questions ADD COLUMN mcqOptions TEXT`,
-    `ALTER TABLE library_questions ADD COLUMN correctOption TEXT`
-  ];
-
-  for (const sql of alterStatements) {
-    await runAsync(db, sql, true); // true = suppress errors
+  try {
+    await pool.query(
+      `INSERT INTO library_metadata (id, total_questions, last_updated)
+       VALUES ($1, $2, CURRENT_TIMESTAMP)
+       ON CONFLICT (id) DO NOTHING`,
+      [1, 0]
+    );
+  } catch (error) {
+    if (!error.message.includes('duplicate')) {
+      console.error('❌ Metadata insertion error:', error.message);
+    }
   }
-}
-
-/**
- * Helper: Run async wrapper for db.run with error handling
- */
-function runAsync(db, sql, suppressErrors = false) {
-  return new Promise((resolve) => {
-    db.run(sql, (err) => {
-      if (err) {
-        if (!suppressErrors && !err.message.includes('duplicate column') && !err.message.includes('already exists')) {
-          console.error('❌ Schema error:', err.message);
-        }
-      }
-      resolve();
-    });
-  });
 }
 
 module.exports = {

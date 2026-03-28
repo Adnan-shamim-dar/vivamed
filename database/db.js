@@ -1,52 +1,79 @@
 /**
- * Database Manager
- * Handles initialization and connection pooling for both databases
- * Ready for MongoDB/PostgreSQL swap in the future
+ * PostgreSQL Database Manager
+ * Replaces sqlite3 with PostgreSQL using pg driver
+ * Maintains callback-style API for compatibility with existing code
  */
 
-const sqlite3 = require('sqlite3').verbose();
-const fs = require('fs').promises;
-const { PROGRESS_DB, LIBRARY_DB, DATA_DIR } = require('../config/constants');
-const { createProgressTables, createLibraryTables } = require('./schema');
+const { Pool } = require('pg');
 
-let progressDb = null;
-let libraryDb = null;
+// Connection pools for progress and library databases
+let progressPool = null;
+let libraryPool = null;
 
+// Database initialization
 const db = {
   /**
-   * Initialize both databases
+   * Initialize PostgreSQL connection pools
+   * Reads from environment variables:
+   * - DB_USER: PostgreSQL user (default: postgres)
+   * - DB_PASSWORD: PostgreSQL password (default: '')
+   * - DB_HOST: PostgreSQL host (default: localhost)
+   * - DB_PORT: PostgreSQL port (default: 5432)
+   * - DB_NAME_PROGRESS: Progress database name (default: vivamed_progress)
+   * - DB_NAME_LIBRARY: Library database name (default: vivamed_library)
    */
   async init() {
     try {
-      // Ensure data directory exists
-      await fs.mkdir(DATA_DIR, { recursive: true });
-      console.log('✅ Data directory ready:', DATA_DIR);
-    } catch (e) {
-      console.log('📁 Data directory exists or error:', e.message);
-    }
+      const dbUser = process.env.DB_USER || 'postgres';
+      const dbPassword = process.env.DB_PASSWORD || '';
+      const dbHost = process.env.DB_HOST || 'localhost';
+      const dbPort = process.env.DB_PORT || 5432;
+      const dbProgressName = process.env.DB_NAME_PROGRESS || 'vivamed_progress';
+      const dbLibraryName = process.env.DB_NAME_LIBRARY || 'vivamed_library';
 
-    try {
-      // Initialize progress database
-      progressDb = new sqlite3.Database(PROGRESS_DB, (err) => {
-        if (err) {
-          console.error('❌ Error opening progress.db:', err.message);
-        } else {
-          console.log(`✅ Progress database connected: ${PROGRESS_DB}`);
-        }
+      // Progress database pool
+      progressPool = new Pool({
+        user: dbUser,
+        password: dbPassword,
+        host: dbHost,
+        port: dbPort,
+        database: dbProgressName,
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 2000
       });
 
-      await createProgressTables(progressDb);
-
-      // Initialize library database
-      libraryDb = new sqlite3.Database(LIBRARY_DB, (err) => {
-        if (err) {
-          console.error('❌ Error opening library.db:', err.message);
-        } else {
-          console.log(`✅ Library database connected: ${LIBRARY_DB}`);
-        }
+      progressPool.on('error', (err) => {
+        console.error('❌ Unexpected error on progress pool:', err);
       });
 
-      await createLibraryTables(libraryDb);
+      // Test progress connection
+      const progressClient = await progressPool.connect();
+      progressClient.release();
+      console.log(`✅ Progress database connected: ${dbProgressName}`);
+
+      // Library database pool
+      libraryPool = new Pool({
+        user: dbUser,
+        password: dbPassword,
+        host: dbHost,
+        port: dbPort,
+        database: dbLibraryName,
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 2000
+      });
+
+      libraryPool.on('error', (err) => {
+        console.error('❌ Unexpected error on library pool:', err);
+      });
+
+      // Test library connection
+      const libraryClient = await libraryPool.connect();
+      libraryClient.release();
+      console.log(`✅ Library database connected: ${dbLibraryName}`);
+
+      return true;
     } catch (error) {
       console.error('❌ Database initialization failed:', error.message);
       throw error;
@@ -54,74 +81,129 @@ const db = {
   },
 
   /**
-   * Get progress database instance
+   * Get progress database pool
    */
   getProgressDb() {
-    if (!progressDb) {
+    if (!progressPool) {
       throw new Error('Progress database not initialized. Call db.init() first.');
     }
-    return progressDb;
+    return progressPool;
   },
 
   /**
-   * Get library database instance
+   * Get library database pool
    */
   getLibraryDb() {
-    if (!libraryDb) {
+    if (!libraryPool) {
       throw new Error('Library database not initialized. Call db.init() first.');
     }
-    return libraryDb;
+    return libraryPool;
   },
 
   /**
-   * Promise wrapper for db.all() - returns array of rows
+   * Promise wrapper for pool.query() - returns array of rows
+   * Compatible with sqlite3 db.all() callback style
    */
-  all(database, sql, params = []) {
-    return new Promise((resolve, reject) => {
-      database.all(sql, params, (err, rows) => {
-        if (err) {
+  all(pool, sql, params = [], callback) {
+    if (typeof callback === 'function') {
+      // Callback style (for backward compatibility)
+      pool.query(sql, params)
+        .then((result) => {
+          callback(null, result.rows || []);
+        })
+        .catch((err) => {
           console.error('❌ DB all() error:', err.message);
-          reject(err);
-        } else {
-          resolve(rows || []);
-        }
-      });
-    });
-  },
-
-  /**
-   * Promise wrapper for db.get() - returns single row
-   */
-  get(database, sql, params = []) {
-    return new Promise((resolve, reject) => {
-      database.get(sql, params, (err, row) => {
-        if (err) {
-          console.error('❌ DB get() error:', err.message);
-          reject(err);
-        } else {
-          resolve(row || null);
-        }
-      });
-    });
-  },
-
-  /**
-   * Promise wrapper for db.run() - INSERT/UPDATE/DELETE
-   */
-  run(database, sql, params = []) {
-    return new Promise((resolve, reject) => {
-      database.run(sql, params, function(err) {
-        if (err) {
-          console.error('❌ DB run() error:', err.message);
-          reject(err);
-        } else {
-          resolve({
-            id: this.lastID,
-            changes: this.changes
+          callback(err);
+        });
+    } else {
+      // Promise style (if called without callback)
+      return new Promise((resolve, reject) => {
+        pool.query(sql, params)
+          .then((result) => {
+            resolve(result.rows || []);
+          })
+          .catch((err) => {
+            console.error('❌ DB all() error:', err.message);
+            reject(err);
           });
-        }
       });
-    });
+    }
+  },
+
+  /**
+   * Promise wrapper for pool.query() - returns single row
+   * Compatible with sqlite3 db.get() callback style
+   */
+  get(pool, sql, params = [], callback) {
+    if (typeof callback === 'function') {
+      // Callback style (for backward compatibility)
+      pool.query(sql, params)
+        .then((result) => {
+          callback(null, result.rows?.[0] || null);
+        })
+        .catch((err) => {
+          console.error('❌ DB get() error:', err.message);
+          callback(err);
+        });
+    } else {
+      // Promise style (if called without callback)
+      return new Promise((resolve, reject) => {
+        pool.query(sql, params)
+          .then((result) => {
+            resolve(result.rows?.[0] || null);
+          })
+          .catch((err) => {
+            console.error('❌ DB get() error:', err.message);
+            reject(err);
+          });
+      });
+    }
+  },
+
+  /**
+   * Promise wrapper for pool.query() - INSERT/UPDATE/DELETE
+   * Compatible with sqlite3 db.run() callback style
+   * Returns { id: lastInsertId, changes: rowCount } for compatibility
+   */
+  run(pool, sql, params = [], callback) {
+    if (typeof callback === 'function') {
+      // Callback style (for backward compatibility)
+      pool.query(sql, params)
+        .then((result) => {
+          // Try to extract lastID from RETURNING clause or result
+          let lastID = null;
+          if (result.rows && result.rows.length > 0 && result.rows[0].id) {
+            lastID = result.rows[0].id;
+          }
+          callback(null, {
+            id: lastID,
+            changes: result.rowCount || 0
+          });
+        })
+        .catch((err) => {
+          console.error('❌ DB run() error:', err.message);
+          callback(err);
+        });
+    } else {
+      // Promise style (if called without callback)
+      return new Promise((resolve, reject) => {
+        pool.query(sql, params)
+          .then((result) => {
+            let lastID = null;
+            if (result.rows && result.rows.length > 0 && result.rows[0].id) {
+              lastID = result.rows[0].id;
+            }
+            resolve({
+              id: lastID,
+              changes: result.rowCount || 0
+            });
+          })
+          .catch((err) => {
+            console.error('❌ DB run() error:', err.message);
+            reject(err);
+          });
+      });
+    }
   }
 };
 

@@ -135,15 +135,15 @@ async function updateTopicPerformance(db, sessionId, topic, subtopic, isCorrect)
   try {
     // Get current performance for this topic
     const current = await new Promise((resolve, reject) => {
-      db.get(
-        `SELECT total_attempts, correct_attempts FROM topic_performance
-         WHERE sessionId = ? AND topic = ? AND subtopic = ?`,
-        [sessionId, topic, subtopic || 'General'],
+      db.get(        `SELECT total_attempts, correct_attempts FROM topic_performance
+         WHERE sessionid = $1 AND topic = $2 AND subtopic = $3`,
+        [sessionid, topic, subtopic || 'General'],
         (err, row) => {
           if (err) reject(err);
           else resolve(row);
         }
       );
+
     });
 
     const totalAttempts = (current?.total_attempts || 0) + 1;
@@ -152,21 +152,21 @@ async function updateTopicPerformance(db, sessionId, topic, subtopic, isCorrect)
 
     // Insert or update topic performance
     await new Promise((resolve, reject) => {
-      db.run(
-        `INSERT INTO topic_performance (sessionId, topic, subtopic, total_attempts, correct_attempts, accuracy, last_attempted)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(sessionId, topic, subtopic) DO UPDATE SET
-           total_attempts = ?,
-           correct_attempts = ?,
-           accuracy = ?,
-           last_attempted = ?`,
-        [sessionId, topic, subtopic || 'General', totalAttempts, correctAttempts, accuracy, new Date().toISOString(),
-         totalAttempts, correctAttempts, accuracy, new Date().toISOString()],
+      db.run(        `INSERT INTO topic_performance (sessionid, topic, subtopic, total_attempts, correct_attempts, accuracy, last_attempted)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT(sessionid, topic, subtopic) DO UPDATE SET
+           total_attempts = $8,
+           correct_attempts = $9,
+           accuracy = $10,
+           last_attempted = $11`,
+        [sessionid, topic, subtopic || 'General', totalattempts, correctAttempts, accuracy, new Date().toISOString(),
+         totalattempts, correctAttempts, accuracy, new Date().toISOString()],
         (err) => {
           if (err) reject(err);
           else resolve();
         }
       );
+
     });
 
     return { totalAttempts, correctAttempts, accuracy };
@@ -186,16 +186,16 @@ async function updateTopicPerformance(db, sessionId, topic, subtopic, isCorrect)
 async function getWeakTopics(db, sessionId) {
   try {
     return await new Promise((resolve, reject) => {
-      db.all(
-        `SELECT topic, subtopic, accuracy, total_attempts FROM topic_performance
-         WHERE sessionId = ? AND accuracy < 70
+      db.all(        `SELECT topic, subtopic, accuracy, total_attempts FROM topic_performance
+         WHERE sessionid = $1 AND accuracy < 70
          ORDER BY accuracy ASC`,
-        [sessionId],
+        [sessionid],
         (err, rows) => {
           if (err) reject(err);
           else resolve(rows || []);
         }
       );
+
     });
   } catch (error) {
     console.warn('⚠️ Error fetching weak topics:', error.message);
