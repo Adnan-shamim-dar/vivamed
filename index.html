@@ -809,19 +809,13 @@
         <div class="text-2xl font-bold text-blue-400">Score: <span id="mcq-score">0</span></div>
       </div>
 
-      <!-- Difficulty Selector (before starting) -->
-      <div id="difficultySelector" class="mb-8 p-6 rounded-2xl glass-effect border border-white/10">
-        <p class="text-gray-300 text-sm mb-4">Select difficulty level:</p>
-        <div class="flex gap-3 flex-wrap">
-          <button onclick="setMCQDifficulty('easy')" class="difficulty-btn px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white font-semibold transition-smooth" data-difficulty="easy">
-            🟢 Easy
-          </button>
-          <button onclick="setMCQDifficulty('medium')" class="difficulty-btn px-4 py-2 rounded-lg bg-yellow-600 hover:bg-yellow-500 text-white font-semibold transition-smooth active" data-difficulty="medium">
-            🟡 Medium
-          </button>
-          <button onclick="setMCQDifficulty('hard')" class="difficulty-btn px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-semibold transition-smooth" data-difficulty="hard">
-            🔴 Hard
-          </button>
+      <!-- Difficulty Filter -->
+      <div class="mb-6 p-4 rounded-xl glass-effect border border-white/10">
+        <label class="text-sm text-gray-400 mb-3 block font-semibold">Question Difficulty</label>
+        <div class="flex gap-2">
+          <button onclick="selectMCQDifficulty('easy')" id="mcq-filter-easy" class="flex-1 px-3 py-2 rounded-lg text-sm bg-slate-700 hover:bg-slate-600 text-white transition-smooth 🟢 Easy">🟢 Easy</button>
+          <button onclick="selectMCQDifficulty('medium')" id="mcq-filter-medium" class="flex-1 px-3 py-2 rounded-lg text-sm bg-slate-700 hover:bg-slate-600 text-white transition-smooth border-2 border-blue-500">🟡 Medium</button>
+          <button onclick="selectMCQDifficulty('hard')" id="mcq-filter-hard" class="flex-1 px-3 py-2 rounded-lg text-sm bg-slate-700 hover:bg-slate-600 text-white transition-smooth">🔴 Hard</button>
         </div>
       </div>
 
@@ -971,9 +965,9 @@ let appState = {
   mcqQuestionNumber: 0,              // Question 1 of 18
   mcqTotalQuestions: 18,             // Total questions in session (unlimited like practice)
   mcqScore: 0,                       // Running score
-  mcqCurrentDifficulty: 'medium',    // Current difficulty selection (easy/medium/hard)
   mcqPreloadCache: [],               // Preloaded MCQ questions for instant transitions
   mcqPreloadInProgress: false,       // Currently preloading MCQ questions?
+  mcqDifficultyFilter: 'medium',     // Selected difficulty for MCQ mode (easy, medium, hard)
 
   // ========== NEW: MODE-SPECIFIC PDF UPLOADS ==========
   examUploadedPDF: null,             // PDF uploaded in Exam mode (null or {fileId, filename, chunks})
@@ -2332,7 +2326,7 @@ async function preloadMCQQuestions(count = 5, parallel = false) {
 
     // PARALLEL fetch for initial preload (much faster)
     if (parallel) {
-      console.log(`⚡ Starting parallel preload of ${count} questions...`);
+      console.log(`⚡ Starting parallel preload of ${count} questions (difficulty: ${appState.mcqDifficultyFilter})...`);
       const fetchPromises = Array(count).fill(null).map((_, i) =>
         fetch('/mcq-question', {
           method: 'POST',
@@ -2340,7 +2334,7 @@ async function preloadMCQQuestions(count = 5, parallel = false) {
           body: JSON.stringify({
             sessionId: appState.sessionId,
             fileId: fileId,
-            difficulty: appState.mcqCurrentDifficulty  // Use selected difficulty
+            difficulty: appState.mcqDifficultyFilter
           })
         }).then(r => r.ok ? r.json() : null).catch(e => {
           console.warn(`⚠️ MCQ preload ${i + 1} failed:`, e.message);
@@ -2365,7 +2359,7 @@ async function preloadMCQQuestions(count = 5, parallel = false) {
             body: JSON.stringify({
               sessionId: appState.sessionId,
               fileId: fileId,
-              difficulty: appState.mcqCurrentDifficulty  // Use selected difficulty
+              difficulty: appState.mcqDifficultyFilter
             })
           });
 
@@ -3423,34 +3417,10 @@ function getRandomFallbackMCQ() {
 // MCQ MODE FUNCTIONS (NEW)
 // ========================================
 
-// Set MCQ Difficulty Level
-function setMCQDifficulty(level) {
-  if (!['easy', 'medium', 'hard'].includes(level)) {
-    console.warn('Invalid difficulty level:', level);
-    return;
-  }
-
-  appState.mcqCurrentDifficulty = level;
-  console.log('✅ MCQ difficulty set to:', level);
-
-  // Update button styling
-  document.querySelectorAll('.difficulty-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.difficulty === level);
-    const isCurrent = btn.dataset.difficulty === level;
-    btn.style.opacity = isCurrent ? '1' : '0.6';
-  });
-
-  // Only load next question if one is already loaded (changing difficulty mid-session)
-  // Don't load on initial selection
-  if (appState.mcqQuestion) {
-    nextMCQQuestion();
-  }
-}
-
 // Load MCQ Question from server
 async function loadMCQQuestion() {
   try {
-    console.log('📋 Loading MCQ question (difficulty: ' + appState.mcqCurrentDifficulty + ')...');
+    console.log('📋 Loading MCQ question...');
 
     // Determine fileId if exists
     const fileId = appState.currentModeUploadedPDF?.fileId || appState.mcqUploadedPDF?.fileId || null;
@@ -3500,7 +3470,7 @@ async function loadMCQQuestion() {
             body: JSON.stringify({
               sessionId: appState.sessionId,
               fileId: fileId,
-              difficulty: appState.mcqCurrentDifficulty
+              difficulty: appState.mcqDifficultyFilter
             })
           });
 
@@ -3611,84 +3581,72 @@ async function loadMCQQuestion() {
 // REMOVED: MCQ stats display (non-functional) - was showing correct/wrong icons
 // Users can view their stats on the Dashboard instead
 
+// Select MCQ Difficulty Filter
+function selectMCQDifficulty(difficulty) {
+  appState.mcqDifficultyFilter = difficulty;
+  console.log(`🎯 Selected MCQ difficulty: ${difficulty}`);
+
+  // Update button styling to show which difficulty is selected
+  const buttons = {
+    easy: document.getElementById('mcq-filter-easy'),
+    medium: document.getElementById('mcq-filter-medium'),
+    hard: document.getElementById('mcq-filter-hard')
+  };
+
+  // Remove active border from all buttons
+  Object.values(buttons).forEach(btn => {
+    btn.classList.remove('border-2', 'border-blue-500');
+    btn.style.borderStyle = '';
+  });
+
+  // Add active border to selected button
+  buttons[difficulty].classList.add('border-2', 'border-blue-500');
+
+  console.log(`✨ MCQ difficulty filter changed to: ${difficulty}`);
+
+  // Clear submitted state and load a fresh question with the new difficulty
+  appState.mcqSubmitted = false;
+  document.getElementById('mcq-feedback').classList.add('hidden');
+  document.getElementById('mcq-submit-btn').classList.remove('hidden');
+  document.getElementById('mcq-next-btn').classList.add('hidden');
+
+  // Load fresh question with new difficulty
+  loadMCQQuestion();
+}
+
 // Select MCQ Option
 function selectMCQOption(letter) {
   if (appState.mcqSubmitted) return; // Don't allow selection after submission
 
-  // Check if this is a multi-answer question
-  const isMulti = appState.mcqQuestion?.choice_type === 'multi';
+  appState.selectedOption = letter;
 
-  if (isMulti) {
-    // Multi-answer: toggle selection
-    if (!Array.isArray(appState.selectedOption)) {
-      appState.selectedOption = [];
-    }
-
-    const index = appState.selectedOption.indexOf(letter);
-    if (index > -1) {
-      // Deselect
-      appState.selectedOption.splice(index, 1);
-    } else {
-      // Add to selection
-      appState.selectedOption.push(letter);
-    }
-
-    console.log(`🎯 Multi-answer selection: ${appState.selectedOption.join(', ')}`);
-  } else {
-    // Single-answer: replace selection
-    appState.selectedOption = letter;
-    console.log(`🎯 Selected option: ${letter}`);
-  }
-
-  // Update UI - highlight selected options
+  // Update UI
   document.querySelectorAll('.mcq-option-btn').forEach(btn => {
-    const isSelected = isMulti
-      ? appState.selectedOption.includes(btn.dataset.option)
-      : btn.dataset.option === appState.selectedOption;
-
-    if (isSelected) {
+    if (btn.dataset.option === letter) {
       btn.classList.add('selected');
     } else {
       btn.classList.remove('selected');
     }
   });
+
+  console.log(`🎯 Selected option: ${letter}`);
 }
 
-// Submit MCQ Answer (supports single and multi-answer)
+// Submit MCQ Answer
 async function submitMCQAnswer() {
-  // Validate selection
-  if (!appState.selectedOption || (Array.isArray(appState.selectedOption) && appState.selectedOption.length === 0)) {
-    alert('Please select at least one option');
+  if (!appState.selectedOption) {
+    alert('Please select an option first');
     return;
   }
 
   if (appState.mcqSubmitted) return; // Already submitted
 
   try {
-    const isMulti = appState.mcqQuestion?.choice_type === 'multi';
-    const selectedStr = Array.isArray(appState.selectedOption)
-      ? appState.selectedOption.join(',')
-      : appState.selectedOption;
-
-    console.log(`📋 Submitting MCQ: selected=${selectedStr}, correct=${appState.mcqCorrectOption}, type=${isMulti ? 'multi' : 'single'}`);
+    console.log(`📋 Submitting MCQ: selected=${appState.selectedOption}, correct=${appState.mcqCorrectOption}`);
 
     appState.mcqSubmitted = true;
 
-    // Evaluate answer based on type
-    let isCorrect = false;
-    if (isMulti) {
-      // Multi-answer: compare sorted arrays
-      const selected = Array.isArray(appState.selectedOption)
-        ? appState.selectedOption.sort().join(',')
-        : appState.selectedOption.split(',').map(s => s.trim()).sort().join(',');
-      const correct = appState.mcqCorrectOption.split(',').map(s => s.trim()).sort().join(',');
-      isCorrect = selected === correct;
-      console.log(`  Multi-answer: selected=[${selected}] vs correct=[${correct}]`);
-    } else {
-      // Single-answer: direct comparison
-      isCorrect = appState.selectedOption === appState.mcqCorrectOption;
-    }
-
+    const isCorrect = appState.selectedOption === appState.mcqCorrectOption;
     const score = isCorrect ? 10 : 0;
     appState.mcqScore += score;
 
@@ -3696,14 +3654,10 @@ async function submitMCQAnswer() {
     document.querySelectorAll('.mcq-option-btn').forEach(btn => {
       btn.disabled = true;
 
-      // Show correct answers
-      const correctAnswers = appState.mcqCorrectOption.split(',').map(s => s.trim());
-      if (correctAnswers.includes(btn.dataset.option)) {
+      if (btn.dataset.option === appState.mcqCorrectOption) {
         btn.classList.add('correct');
       }
-
-      // Show incorrect selected answers (for single-answer)
-      if (!isMulti && btn.dataset.option === appState.selectedOption && !isCorrect) {
+      if (btn.dataset.option === appState.selectedOption && !isCorrect) {
         btn.classList.add('incorrect');
       }
     });
@@ -3717,78 +3671,18 @@ async function submitMCQAnswer() {
     if (isCorrect) {
       feedbackDiv.classList.remove('incorrect');
       feedbackDiv.classList.add('correct');
-      const feedbackText = isMulti
-        ? `✓ Correct! All answers selected correctly! 🎉 (+${score} points)`
-        : `✓ Correct! 🎉 (+${score} points)`;
-      resultMsg.textContent = feedbackText;
+      resultMsg.textContent = `✓ Correct! 🎉 (+${score} points)`;
       resultMsg.className = 'text-xl font-bold text-green-400';
     } else {
       feedbackDiv.classList.remove('correct');
       feedbackDiv.classList.add('incorrect');
-      const correctStr = isMulti ? appState.mcqCorrectOption.split(',').join(', ') : appState.mcqCorrectOption;
-      resultMsg.textContent = `✗ Incorrect (0 points). Correct answer(s): ${correctStr}`;
+      resultMsg.textContent = `✗ Incorrect (0 points). Correct answer: ${appState.mcqCorrectOption}`;
       resultMsg.className = 'text-xl font-bold text-red-400';
     }
     explanation.textContent = appState.mcqExplanation;
 
     // Hide submit button, show next button
     document.getElementById('mcq-submit-btn').classList.add('hidden');
-    document.getElementById('mcq-next-btn').classList.remove('hidden');
-
-    // Save to learning engine
-    try {
-      console.log(`📊 Saving to learning engine: correct=${isCorrect}, topic=${appState.mcqQuestion.topic}`);
-
-      // Save to mcq_attempts table
-      const saveResponse = await fetch('/mcq-evaluate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: appState.sessionId,
-          selectedOption: appState.selectedOption,
-          correctOption: appState.mcqCorrectOption,
-          difficulty: appState.mcqQuestion.difficulty,
-          choice_type: appState.mcqQuestion.choice_type || 'single'
-        })
-      });
-
-      if (!saveResponse.ok) {
-        console.error('❌ Failed to save MCQ evaluation');
-      }
-
-      // Also save to mcq_questions_answered for learning engine
-      const learningResponse = await fetch('/api/mcq/attempt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: appState.sessionId,
-          question: appState.mcqQuestion.question,
-          optionsJSON: JSON.stringify(appState.mcqQuestion.options),
-          correctOption: appState.mcqQuestion.correctOption,
-          userAnswer: Array.isArray(appState.selectedOption) ? appState.selectedOption.join(',') : appState.selectedOption,
-          difficulty: appState.mcqQuestion.difficulty,
-          isRevision: appState.mcqQuestion.isRevision || false,
-          reviewCount: appState.mcqQuestion.reviewCount || 0,
-          topic: appState.mcqQuestion.topic,
-          subtopic: appState.mcqQuestion.subtopic
-        })
-      });
-
-      if (!learningResponse.ok) {
-        console.warn('⚠️ Could not save to learning engine:', await learningResponse.text());
-      }
-    } catch (learningErr) {
-      console.warn('⚠️ Learning engine save failed (non-blocking):', learningErr.message);
-    }
-
-    // Update score display
-    document.getElementById('mcq-score').textContent = appState.mcqScore;
-
-  } catch (error) {
-    console.error('❌ Error submitting MCQ answer:', error);
-    alert('Error submitting answer. Please try again.');
-  }
-}
     document.getElementById('mcq-next-btn').classList.remove('hidden');
 
     // Update score display
