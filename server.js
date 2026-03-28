@@ -2,7 +2,16 @@ require('dotenv').config()
 console.log('🔥 SERVER.JS LOADED - VERSION 3')
 const express = require("express")
 const { initDb, saveDb, DbWrapper } = require('./db-wrapper')
-const sqlite3 = require('sqlite3').verbose()
+
+// Try to load sqlite3, but it's optional (not available on Railway)
+let sqlite3;
+try {
+  sqlite3 = require('sqlite3').verbose()
+} catch (err) {
+  // sqlite3 not available (expected on Railway with PostgreSQL)
+  sqlite3 = null
+}
+
 const multer = require('multer')
 const pdfParse = require('pdf-parse')
 const fs = require('fs').promises
@@ -172,17 +181,21 @@ async function setupDatabase() {
     // Create all tables for main database
     createMainDatabaseTables();
 
-    // Initialize library database with NATIVE SQLITE3 (not sql.js)
-    const libraryPath = path.join(__dirname, 'data', 'library.db');
-    libraryDb = new sqlite3.Database(libraryPath, (err) => {
-      if (err) {
-        console.error('❌ Library database error:', err.message);
-      } else {
-        console.log('✅ Library database connected (native sqlite3)');
-        // Enable WAL mode for better concurrency
-        libraryDb.run('PRAGMA journal_mode = WAL');
-      }
-    });
+    // Initialize library database with NATIVE SQLITE3 (not sql.js) - only if available
+    if (sqlite3) {
+      const libraryPath = path.join(__dirname, 'data', 'library.db');
+      libraryDb = new sqlite3.Database(libraryPath, (err) => {
+        if (err) {
+          console.error('❌ Library database error:', err.message);
+        } else {
+          console.log('✅ Library database connected (native sqlite3)');
+          // Enable WAL mode for better concurrency
+          libraryDb.run('PRAGMA journal_mode = WAL');
+        }
+      });
+    } else {
+      console.log('⚠️  sqlite3 not available - using PostgreSQL pathway');
+    }
 
     // Create all tables for library database (using native sqlite3)
     createLibraryDatabaseTables();
